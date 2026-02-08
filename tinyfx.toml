@@ -1,0 +1,7 @@
+# tinyfx project configuration
+# All paths are relative to the project root.
+
+src = "frontend"
+out = "dist"
+components = "frontend/components"
+entry = "frontend/main.ts"

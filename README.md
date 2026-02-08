@@ -30,6 +30,50 @@ Modern frontend frameworks solve many problems — but they also:
 
 If you like Go templates, direct DOM access, and TypeScript safety, this is for you.
 
+## Getting Started
+
+### 1. Installation
+The compiler is written in Rust. You can build it from source:
+
+```sh
+cd compiler
+cargo build --release
+```
+
+### 2. Initialize a new project
+Run the init command to create the recommended folder structure:
+
+```sh
+./compiler/target/release/compiler init
+```
+
+This creates a `frontend/` folder with everything you need:
+- `frontend/index.html`: Entry points with components
+- `frontend/main.ts`: Runtime initialization
+- `frontend/lib/`: HTTP, DTOs, Models and State
+- `frontend/components/`: Example component
+- `tinyfx.toml`: Project configuration
+
+### 3. Build for production
+Compile your components and bundle your assets:
+
+```sh
+./compiler/target/release/compiler build
+```
+
+---
+
+## Configuration
+
+`tinyfx` uses a `tinyfx.toml` file in your root:
+
+```toml
+src = "frontend"
+out = "dist"
+components = "frontend/components"
+entry = "frontend/main.ts"
+```
+
 ---
 
 ## What tinyfx is (and is not)
@@ -239,15 +283,4 @@ The goal is not to compete with frameworks, but to:
 - stay maintainable over time
 
 ## License
-
 MIT
-
-
----
-
-If you want, next we can:
-- add a **“Getting Started”** section
-- write a **first example app**
-- or document **internal design decisions**
-
-Just say where you want to go next.
