@@ -54,6 +54,8 @@ This creates a `frontend/` folder with everything you need:
 - `frontend/components/`: Example component
 - `tinyfx.toml`: Project configuration
 
+Note: `tinyfx init` does not copy the runtime into your app. In this repo it imports the runtime from the sibling `runtime/` folder (so you can develop everything together). Later, when the `build` pipeline is implemented, it will bundle the runtime + your entry file into `dist/js/`.
+
 ### 3. Build for production
 Compile your components and bundle your assets:
 

@@ -1,0 +1,240 @@
+mod component;
+mod glue;
+
+use std::collections::HashSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{bail, Context, Result};
+use regex::Regex;
+
+use crate::config::Config;
+
+pub fn run_build(cfg: &Config) -> Result<()> {
+    println!("tinyfx build");
+    println!();
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase 1: Template / Component compilation (Rust)
+    // ══════════════════════════════════════════════════════════════
+    println!("Phase 1: Component compilation");
+
+    let src_dir = PathBuf::from(&cfg.src);
+    let out_dir = PathBuf::from(&cfg.out);
+    let components_dir = PathBuf::from(&cfg.components);
+
+    // ── Validate inputs ──────────────────────────────────────────
+    let input_html = src_dir.join("index.html");
+    if !input_html.exists() {
+        bail!(
+            "error: source file not found\n  → {}",
+            input_html.display()
+        );
+    }
+    if !components_dir.exists() {
+        bail!(
+            "error: components directory not found\n  → {}",
+            components_dir.display()
+        );
+    }
+
+    // ── Create output directories ────────────────────────────────
+    let out_js = out_dir.join("js");
+    let out_css = out_dir.join("css");
+    fs::create_dir_all(&out_dir)
+        .with_context(|| format!("Failed to create {}", out_dir.display()))?;
+    fs::create_dir_all(&out_js)
+        .with_context(|| format!("Failed to create {}", out_js.display()))?;
+    fs::create_dir_all(&out_css)
+        .with_context(|| format!("Failed to create {}", out_css.display()))?;
+
+    // ── Read source HTML ─────────────────────────────────────────
+    let html = fs::read_to_string(&input_html)
+        .with_context(|| format!("Failed to read {}", input_html.display()))?;
+
+    // ── Resolve components ───────────────────────────────────────
+    let mut used_components: HashSet<String> = HashSet::new();
+    let compiled_html = component::resolve_all(&html, &components_dir, &mut used_components)?;
+
+    // ── Rewrite asset paths for production ───────────────────────
+    let final_html = rewrite_html_paths(&compiled_html);
+
+    // ── Write dist/index.html ────────────────────────────────────
+    let out_html_path = out_dir.join("index.html");
+    fs::write(&out_html_path, &final_html)
+        .with_context(|| format!("Failed to write {}", out_html_path.display()))?;
+    println!("  ✔ {}", out_html_path.display());
+
+    // ── Generate tinyfx.gen.ts (temp location for bundling) ──────
+    let gen_ts = glue::generate_registry(&used_components, &components_dir);
+    let gen_ts_path = out_dir.join("tinyfx.gen.ts");
+    fs::write(&gen_ts_path, &gen_ts)
+        .with_context(|| format!("Failed to write {}", gen_ts_path.display()))?;
+    println!("  ✔ {} (generated glue)", gen_ts_path.display());
+
+    if !used_components.is_empty() {
+        let mut names: Vec<&String> = used_components.iter().collect();
+        names.sort();
+        println!("  components: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+    }
+
+    println!();
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase 2: Asset pipeline (delegated to external tools)
+    // ══════════════════════════════════════════════════════════════
+    println!("Phase 2: Asset pipeline");
+
+    // ── 2a. Bundle JS/TS with esbuild ────────────────────────────
+    let entry_path = PathBuf::from(&cfg.entry);
+    if entry_path.exists() {
+        run_esbuild(&entry_path, &gen_ts_path, &out_js)?;
+        println!("  ✔ {}/main.js (bundled)", out_js.display());
+    } else {
+        println!("  · skipped JS bundling (entry not found: {})", cfg.entry);
+    }
+
+    // ── 2b. Copy CSS ─────────────────────────────────────────────
+    let styles_dir = PathBuf::from(&cfg.styles);
+    if styles_dir.exists() {
+        copy_dir_contents(&styles_dir, &out_css)?;
+        println!("  ✔ {}/  (copied styles)", out_css.display());
+    } else {
+        println!("  · skipped CSS (styles dir not found: {})", cfg.styles);
+    }
+
+    // ── 2c. Copy static assets ───────────────────────────────────
+    for static_dir in &cfg.static_dirs {
+        let src_static = PathBuf::from(static_dir);
+        if src_static.exists() {
+            let dest = out_dir.join(src_static.file_name().unwrap_or_default());
+            copy_dir_contents(&src_static, &dest)?;
+            println!("  ✔ {}/  (copied static)", dest.display());
+        }
+    }
+
+    // ── Cleanup: remove intermediate .ts file ────────────────────
+    let _ = fs::remove_file(&gen_ts_path);
+
+    println!();
+    println!("Done! Output in {}/", out_dir.display());
+    println!();
+
+    Ok(())
+}
+
+/// Rewrite HTML paths for production output structure:
+/// - ./styles/main.css → ./css/main.css
+/// - ./main.ts → ./js/main.js
+fn rewrite_html_paths(html: &str) -> String {
+    let mut result = html.to_string();
+
+    // Rewrite CSS: ./styles/*.css → ./css/*.css
+    let css_re = Regex::new(r#"href="\.?/?styles/([^"]+\.css)""#).unwrap();
+    result = css_re.replace_all(&result, r#"href="./css/$1""#).to_string();
+
+    // Rewrite JS: ./main.ts or src="main.ts" → ./js/main.js
+    let js_re = Regex::new(r#"src="\.?/?[^"]*\.ts""#).unwrap();
+    result = js_re.replace_all(&result, r#"src="./js/main.js""#).to_string();
+
+    result
+}
+
+/// Run esbuild to bundle the entry + generated glue into dist/js/main.js
+fn run_esbuild(entry: &Path, gen_ts: &Path, out_js: &Path) -> Result<()> {
+    let out_file = out_js.join("main.js");
+
+    // Create a temporary entry that imports both the glue and the user entry
+    let tmp_entry = out_js.parent().unwrap_or(Path::new(".")).join("_entry.ts");
+    let entry_content = format!(
+        r#"import "{}";
+import "{}";
+"#,
+        gen_ts.canonicalize()?.display(),
+        entry.canonicalize()?.display()
+    );
+    fs::write(&tmp_entry, &entry_content)
+        .with_context(|| "Failed to write temporary entry file")?;
+
+    // Try to find esbuild: local node_modules first, then global, then npx
+    let esbuild_cmd = find_esbuild()?;
+    
+    // If using npx, add 'esbuild' as the next argument
+    let mut cmd = if esbuild_cmd == "npx" {
+        let mut c = Command::new("npx");
+        c.arg("esbuild");
+        c
+    } else {
+        Command::new(&esbuild_cmd)
+    };
+
+    let status = cmd
+        .arg(&tmp_entry)
+        .arg("--bundle")
+        .arg(format!("--outfile={}", out_file.display()))
+        .arg("--platform=browser")
+        .arg("--format=esm")
+        .arg("--minify")
+        .status()
+        .with_context(|| format!("Failed to run esbuild ({})", esbuild_cmd))?;
+
+    // Cleanup temp entry
+    let _ = fs::remove_file(&tmp_entry);
+
+    if !status.success() {
+        bail!("esbuild failed with exit code: {:?}", status.code());
+    }
+
+    Ok(())
+}
+
+/// Find esbuild binary: check local node_modules, then PATH, then use npx
+fn find_esbuild() -> Result<String> {
+    // Check local node_modules/.bin/esbuild (relative to cwd)
+    let local = Path::new("node_modules/.bin/esbuild");
+    if local.exists() {
+        return Ok(local.to_string_lossy().to_string());
+    }
+
+    // Check if esbuild is in PATH (globally installed)
+    if let Ok(output) = Command::new("which").arg("esbuild").output() {
+        if output.status.success() {
+            return Ok("esbuild".to_string());
+        }
+    }
+
+    // Fall back to npx (will search parent dirs or auto-install)
+    if let Ok(output) = Command::new("which").arg("npx").output() {
+        if output.status.success() {
+            return Ok("npx".to_string());
+        }
+    }
+
+    bail!(
+        "esbuild not found. Install it with:\n  npm install --save-dev esbuild\nor globally:\n  npm install -g esbuild"
+    )
+}
+
+/// Recursively copy directory contents
+fn copy_dir_contents(src: &Path, dest: &Path) -> Result<()> {
+    fs::create_dir_all(dest)
+        .with_context(|| format!("Failed to create {}", dest.display()))?;
+
+    for entry in fs::read_dir(src)
+        .with_context(|| format!("Failed to read {}", src.display()))?
+    {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_contents(&src_path, &dest_path)?;
+        } else {
+            fs::copy(&src_path, &dest_path)
+                .with_context(|| format!("Failed to copy {} → {}", src_path.display(), dest_path.display()))?;
+        }
+    }
+
+    Ok(())
+}

@@ -1,3 +1,4 @@
+mod build;
 mod config;
 mod init;
 
@@ -6,7 +7,7 @@ use std::path::PathBuf;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use config::{ensure_out_dirs, load_config};
+use config::load_config;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -53,16 +54,7 @@ fn main() -> Result<()> {
         }
         Command::Build { config: config_path } => {
             let cfg = load_config(&config_path).unwrap_or_default();
-
-            ensure_out_dirs(&cfg.out)?;
-
-            println!("tinyfx build:");
-            println!("  src:        {}", cfg.src);
-            println!("  out:        {}", cfg.out);
-            println!("  components: {}", cfg.components);
-            println!("  entry:      {}", cfg.entry);
-            println!();
-            println!("  (compiler pipeline not yet implemented)");
+            build::run_build(&cfg)?;
         }
     }
 
