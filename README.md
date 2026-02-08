@@ -33,18 +33,17 @@ If you like Go templates, direct DOM access, and TypeScript safety, this is for 
 ## Getting Started
 
 ### 1. Installation
-The compiler is written in Rust. You can build it from source:
+Install the CLI so you can run `tinyfx` from anywhere:
 
 ```sh
-cd compiler
-cargo build --release
+cargo install --path compiler
 ```
 
 ### 2. Initialize a new project
 Run the init command to create the recommended folder structure:
 
 ```sh
-./compiler/target/release/compiler init
+tinyfx init
 ```
 
 This creates a `frontend/` folder with everything you need:
@@ -54,13 +53,19 @@ This creates a `frontend/` folder with everything you need:
 - `frontend/components/`: Example component
 - `tinyfx.toml`: Project configuration
 
-Note: `tinyfx init` does not copy the runtime into your app. In this repo it imports the runtime from the sibling `runtime/` folder (so you can develop everything together). Later, when the `build` pipeline is implemented, it will bundle the runtime + your entry file into `dist/js/`.
+Note: `tinyfx init` does not copy the runtime into your app. In this repo it imports the runtime from the sibling `runtime/` folder (so you can develop everything together). The build pipeline bundles your entry file into `dist/js/`.
 
 ### 3. Build for production
 Compile your components and bundle your assets:
 
 ```sh
-./compiler/target/release/compiler build
+tinyfx build
+```
+
+`tinyfx build` delegates JS/TS bundling to **esbuild**. Install it in your project (or globally):
+
+```sh
+npm install --save-dev esbuild
 ```
 
 ---
