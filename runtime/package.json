@@ -1,0 +1,25 @@
+{
+  "name": "@tinyfx/runtime",
+  "version": "0.1.0",
+  "description": "Minimal frontend runtime — signals, DOM helpers, typed HTTP, DTO mapping",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./signals": "./dist/signals.js",
+    "./dom": "./dist/dom.js",
+    "./http": "./dist/http.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "license": "MIT"
+}

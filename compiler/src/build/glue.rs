@@ -5,7 +5,10 @@ use std::path::Path;
 ///
 /// For each used component that has a .ts file with an init() export,
 /// emit an import and wire it into initComponents().
-pub fn generate_registry(used: &HashSet<String>, components_dir: &Path) -> String {
+///
+/// `src_dir` is the directory where tinyfx.gen.ts will live (e.g. "src/").
+/// Import paths are computed relative to that location.
+pub fn generate_registry(used: &HashSet<String>, components_dir: &Path, src_dir: &Path) -> String {
     let mut imports = Vec::new();
     let mut entries = Vec::new();
 
@@ -15,12 +18,8 @@ pub fn generate_registry(used: &HashSet<String>, components_dir: &Path) -> Strin
     for name in &names {
         let ts_path = components_dir.join(name.as_str()).join(format!("{}.ts", name));
         if ts_path.exists() {
-            let import_path = format!(
-                "../{}/{}/{}",
-                components_dir.display(),
-                name,
-                name
-            );
+            // Compute relative path from src_dir (where gen file lives) to the .ts file
+            let import_path = relative_import(src_dir, &components_dir.join(name.as_str()).join(name.as_str()));
             let alias = format!("{}Init", name);
             imports.push(format!(
                 "import {{ init as {} }} from \"{}\";",
@@ -66,17 +65,62 @@ pub fn generate_registry(used: &HashSet<String>, components_dir: &Path) -> Strin
     out
 }
 
+/// Compute a relative import path from `from_dir` to `target` (without extension).
+/// Both should be relative to the project root.
+fn relative_import(from_dir: &Path, target: &Path) -> String {
+    let from_parts: Vec<_> = from_dir.components().collect();
+    let to_parts: Vec<_> = target.components().collect();
+
+    // Find common prefix length
+    let mut common = 0;
+    while common < from_parts.len() && common < to_parts.len() && from_parts[common] == to_parts[common] {
+        common += 1;
+    }
+
+    let mut result = String::new();
+    let ups = from_parts.len() - common;
+    if ups == 0 {
+        result.push_str("./");
+    } else {
+        for _ in 0..ups {
+            result.push_str("../");
+        }
+    }
+
+    for (i, part) in to_parts[common..].iter().enumerate() {
+        if i > 0 {
+            result.push('/');
+        }
+        result.push_str(&part.as_os_str().to_string_lossy());
+    }
+
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::collections::HashSet;
+    use std::path::Path;
 
     #[test]
     fn empty_registry() {
         let used = HashSet::new();
-        let result = generate_registry(&used, Path::new("frontend/components"));
+        let result = generate_registry(&used, Path::new("src/components"), Path::new("src"));
         assert!(result.contains("const registry"));
         assert!(result.contains("initComponents"));
         assert!(!result.contains("import"));
+    }
+
+    #[test]
+    fn relative_import_same_parent() {
+        let result = relative_import(Path::new("src"), Path::new("src/components/Button/Button"));
+        assert_eq!(result, "./components/Button/Button");
+    }
+
+    #[test]
+    fn relative_import_sibling() {
+        let result = relative_import(Path::new("src/lib"), Path::new("src/components/Button/Button"));
+        assert_eq!(result, "../components/Button/Button");
     }
 }

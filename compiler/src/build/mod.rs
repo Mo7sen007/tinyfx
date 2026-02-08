@@ -20,12 +20,11 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     // ══════════════════════════════════════════════════════════════
     println!("Phase 1: Component compilation");
 
-    let src_dir = PathBuf::from(&cfg.src);
-    let out_dir = PathBuf::from(&cfg.out);
+    let out_dir = PathBuf::from(&cfg.out_dir);
     let components_dir = PathBuf::from(&cfg.components);
 
     // ── Validate inputs ──────────────────────────────────────────
-    let input_html = src_dir.join("index.html");
+    let input_html = PathBuf::from(&cfg.entry_html);
     if !input_html.exists() {
         bail!(
             "error: source file not found\n  → {}",
@@ -66,9 +65,10 @@ pub fn run_build(cfg: &Config) -> Result<()> {
         .with_context(|| format!("Failed to write {}", out_html_path.display()))?;
     println!("  ✔ {}", out_html_path.display());
 
-    // ── Generate tinyfx.gen.ts (temp location for bundling) ──────
-    let gen_ts = glue::generate_registry(&used_components, &components_dir);
-    let gen_ts_path = out_dir.join("tinyfx.gen.ts");
+    // ── Generate tinyfx.gen.ts into src/ dir for bundling ────────
+    let src_dir = input_html.parent().unwrap_or(Path::new("."));
+    let gen_ts = glue::generate_registry(&used_components, &components_dir, src_dir);
+    let gen_ts_path = src_dir.join("tinyfx.gen.ts");
     fs::write(&gen_ts_path, &gen_ts)
         .with_context(|| format!("Failed to write {}", gen_ts_path.display()))?;
     println!("  ✔ {} (generated glue)", gen_ts_path.display());
@@ -87,12 +87,12 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     println!("Phase 2: Asset pipeline");
 
     // ── 2a. Bundle JS/TS with esbuild ────────────────────────────
-    let entry_path = PathBuf::from(&cfg.entry);
+    let entry_path = PathBuf::from(&cfg.entry_ts);
     if entry_path.exists() {
         run_esbuild(&entry_path, &gen_ts_path, &out_js)?;
         println!("  ✔ {}/main.js (bundled)", out_js.display());
     } else {
-        println!("  · skipped JS bundling (entry not found: {})", cfg.entry);
+        println!("  · skipped JS bundling (entry not found: {})", cfg.entry_ts);
     }
 
     // ── 2b. Copy CSS ─────────────────────────────────────────────

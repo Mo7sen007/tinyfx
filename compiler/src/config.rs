@@ -6,30 +6,34 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
-    pub src: String,
-    pub out: String,
+    /// Path to the HTML entry (relative to project root)
+    pub entry_html: String,
+    /// Path to the TS entry (relative to project root)
+    pub entry_ts: String,
+    /// Output directory
+    pub out_dir: String,
+    /// Components directory
     pub components: String,
-    pub entry: String,
-    /// Directory containing CSS files (relative to project root)
+    /// Styles directory
     #[serde(default = "default_styles")]
     pub styles: String,
-    /// Static assets to copy verbatim (relative to project root)
+    /// Static assets to copy verbatim
     #[serde(default)]
     pub static_dirs: Vec<String>,
 }
 
 fn default_styles() -> String {
-    "frontend/styles".to_string()
+    "src/styles".to_string()
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            src: "frontend".to_string(),
-            out: "dist".to_string(),
-            components: "frontend/components".to_string(),
-            entry: "frontend/main.ts".to_string(),
-            styles: "frontend/styles".to_string(),
+            entry_html: "src/index.html".to_string(),
+            entry_ts: "src/main.ts".to_string(),
+            out_dir: "dist".to_string(),
+            components: "src/components".to_string(),
+            styles: "src/styles".to_string(),
             static_dirs: vec![],
         }
     }
@@ -45,11 +49,4 @@ pub fn load_config(path: &Path) -> Result<Config> {
     let cfg: Config = toml::from_str(&content)
         .with_context(|| format!("Failed to parse TOML at {}", path.display()))?;
     Ok(cfg)
-}
-
-pub fn ensure_out_dirs(out_dir: &str) -> Result<()> {
-    let base = Path::new(out_dir);
-    fs::create_dir_all(base)
-        .with_context(|| format!("Failed to create {}", out_dir))?;
-    Ok(())
 }

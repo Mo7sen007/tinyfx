@@ -22,15 +22,10 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Initialize a new tinyfx project structure
+    /// Initialize a new tinyfx project
     Init {
-        /// Source directory name (default: "frontend")
-        #[arg(long, default_value = "frontend")]
-        src: String,
-
-        /// Output directory name (default: "dist")
-        #[arg(long, default_value = "dist")]
-        out: String,
+        /// Project name (creates a directory with this name)
+        name: String,
 
         /// Overwrite existing files
         #[arg(long, default_value_t = false)]
@@ -49,8 +44,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Init { src, out, force } => {
-            init::run_init(&src, &out, force)?;
+        Command::Init { name, force } => {
+            init::run_init(&name, force)?;
         }
         Command::Build { config: config_path } => {
             let cfg = load_config(&config_path).unwrap_or_default();

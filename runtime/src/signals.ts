@@ -1,3 +1,6 @@
+// @tinyfx/runtime — signals
+// Minimal, explicit reactivity — no proxies, no magic.
+
 type Subscriber = () => void;
 
 const effectStack: Subscriber[] = [];
@@ -21,7 +24,7 @@ export class Signal<T> {
   set(v: T) {
     if (Object.is(v, this.value)) return;
     this.value = v;
-    this.subs.forEach(fn => fn());
+    this.subs.forEach((fn) => fn());
   }
 }
 

@@ -1,15 +1,10 @@
 # tinyfx
 
-> A minimal frontend helper library and compile-time HTML composition tool, designed for **Go SSR**, **TypeScript**, and **direct DOM manipulation** — without virtual DOMs or heavy frameworks.
+> A minimal compile-time HTML component compiler + reactive TypeScript runtime for building fast, SSR-friendly web apps — without virtual DOMs or heavy frameworks.
 
-`tinyfx` exists because sometimes you want:
-- typed API calls
-- simple reactivity
-- reusable HTML pieces
-- fast DOM updates
-- SSR-friendly behavior
-
-…without adopting a full frontend framework.
+`tinyfx` is a **hybrid system**:
+- **Rust CLI** — compile-time HTML component expansion, asset bundling orchestration
+- **npm runtime** (`@tinyfx/runtime`) — signals, DOM helpers, typed HTTP client
 
 ---
 
@@ -30,103 +25,122 @@ Modern frontend frameworks solve many problems — but they also:
 
 If you like Go templates, direct DOM access, and TypeScript safety, this is for you.
 
+---
+
+## Requirements
+
+- **Rust** (for the CLI)
+- **Node.js + npm** (for esbuild and the runtime package)
+
+---
+
 ## Getting Started
 
-### 1. Installation
-Install the CLI so you can run `tinyfx` from anywhere:
+### 1. Install the CLI
 
 ```sh
 cargo install --path compiler
 ```
 
-### 2. Initialize a new project
-Run the init command to create the recommended folder structure:
+This gives you the `tinyfx` command globally.
+
+### 2. Scaffold a new project
 
 ```sh
-tinyfx init
+tinyfx init my-app
+cd my-app
 ```
 
-This creates a `frontend/` folder with everything you need:
-- `frontend/index.html`: Entry points with components
-- `frontend/main.ts`: Runtime initialization
-- `frontend/lib/`: HTTP, DTOs, Models and State
-- `frontend/components/`: Example component
-- `tinyfx.toml`: Project configuration
+This creates a standalone npm project:
 
-Note: `tinyfx init` does not copy the runtime into your app. In this repo it imports the runtime from the sibling `runtime/` folder (so you can develop everything together). The build pipeline bundles your entry file into `dist/js/`.
+```
+my-app/
+├─ src/
+│  ├─ index.html
+│  ├─ main.ts
+│  ├─ components/
+│  │  └─ Button/
+│  │     ├─ Button.html
+│  │     └─ Button.ts
+│  ├─ lib/
+│  │  ├─ http/
+│  │  ├─ dto/
+│  │  ├─ models/
+│  │  └─ state/
+│  └─ styles/
+│     └─ main.css
+├─ package.json          # @tinyfx/runtime + esbuild
+├─ tsconfig.json
+└─ tinyfx.toml
+```
+
+Dependencies are installed automatically (`npm install`).
 
 ### 3. Build for production
-Compile your components and bundle your assets:
 
 ```sh
 tinyfx build
 ```
 
-`tinyfx build` delegates JS/TS bundling to **esbuild**. Install it in your project (or globally):
+Output:
 
-```sh
-npm install --save-dev esbuild
+```
+dist/
+├─ index.html    # component-expanded HTML
+├─ js/main.js    # bundled + minified JS
+└─ css/main.css  # copied styles
 ```
 
 ---
 
 ## Configuration
 
-`tinyfx` uses a `tinyfx.toml` file in your root:
+`tinyfx.toml` in your project root:
 
 ```toml
-src = "frontend"
-out = "dist"
-components = "frontend/components"
-entry = "frontend/main.ts"
+entry_html = "src/index.html"
+entry_ts   = "src/main.ts"
+out_dir    = "dist"
+components = "src/components"
+styles     = "src/styles"
 ```
 
 ---
 
-## What tinyfx is (and is not)
+## Architecture
 
-### It **is**
-- A small **runtime library** for:
-  - signals (reactivity)
-  - DOM bindings
-  - typed HTTP requests
-  - DTO / model mapping
-- A **compile-time tool** to:
-  - split HTML into reusable components
-  - inline components into final HTML
-  - generate minimal JS glue code
-
-### It is **not**
-- A virtual DOM
-- A JSX-based framework
-- A router
-- A full SSR engine
-- A build tool replacement
-
-## Project structure
+### Build pipeline
 
 ```
-tinyfx/
-├─ compiler/ # Build-time HTML component compiler
-├─ runtime/ # Browser-side TypeScript runtime
-├─ examples/ # Real usage examples
-├─ docs/ # Design notes & decisions
-├─ package.json
-├─ tsconfig.json
-└─ README.md
+tinyfx build
+│
+├─ Phase 1: Component compilation (Rust)
+│  ├─ Read src/index.html
+│  ├─ Expand <component> tags → plain HTML + data-component attrs
+│  ├─ Write dist/index.html (with rewritten asset paths)
+│  └─ Generate src/tinyfx.gen.ts (component init registry)
+│
+└─ Phase 2: Asset pipeline (delegated)
+   ├─ esbuild: bundle src/main.ts → dist/js/main.js
+   ├─ Copy src/styles/ → dist/css/
+   └─ Copy static assets (if configured)
 ```
 
-The **compiler** and **runtime** are independent by design.
+The Rust CLI **never reimplements** JS/TS compilation — it delegates to esbuild.
 
 ---
 
 ## Runtime overview
+
+The runtime is a normal npm package: `@tinyfx/runtime`
 
 ### Signals (reactivity)
 
 Minimal, explicit reactivity — no proxies, no magic.
 
 ```ts
+import { signal, effect } from "@tinyfx/runtime";
+
 const count = signal(0);
 
 effect(() => {
@@ -143,6 +157,8 @@ Signals update only what you touch — no re-renders.
 Helpers for binding state to the DOM without hiding it.
 
 ```ts
+import { bindText } from "@tinyfx/runtime";
+
 bindText(span, count);
 ```
 
@@ -154,56 +170,38 @@ JS stays JS.
 A thin, typed wrapper over fetch.
 
 ```ts
+import { createHttp } from "@tinyfx/runtime";
+
 const api = createHttp({ baseUrl: "/api" });
 
-const user = await api.get("/users/1", User);
+const user = await api.get<User>("/users/1");
 ```
 
 #### Features
 
 - typed responses
 - centralized error handling
-- abort / timeout support
-- DTO binding
+- configurable headers
+- GET, POST, PUT, DELETE
 
 No interceptors. No global state.
 
-### DTO / Model mapping
+---
 
-Runtime-safe mapping between backend responses and frontend models.
-
-```ts
-class User {
-  id!: number;
-  createdAt!: Date;
-
-  static from(api: any): User {
-    return Object.assign(new User(), {
-      id: api.id,
-      createdAt: new Date(api.created_at),
-    });
-  }
-}
-```
-
-
-This keeps backend contracts explicit and debuggable.
-
-### Compile-time components
+## Compile-time components
 
 Components are a build-time concept, not a runtime one.
 
-Component definition
+### Component definition
 
 ```
-components/
+src/components/
   Button/
     Button.html
-    Button.ts      # optional
-    Button.css     # optional
+    Button.ts      # optional behavior
 ```
 
-Button.html
+**Button.html**
 
 ```html
 <button class="btn btn-{{variant}}">
@@ -211,7 +209,7 @@ Button.html
 </button>
 ```
 
-Usage
+### Usage
 
 ```html
 <component name="Button" variant="primary">
@@ -219,7 +217,7 @@ Usage
 </component>
 ```
 
-Compiler output
+### Compiler output
 
 ```html
 <button class="btn btn-primary" data-component="Button">
@@ -227,14 +225,11 @@ Compiler output
 </button>
 ```
 
-
-No runtime rendering.
-No virtual DOM.
-Just plain HTML.
+No runtime rendering. No virtual DOM. Just plain HTML.
 
 ### Component behavior (optional)
 
-If a component needs behavior, it exports an init function:
+If a component needs behavior, it exports an `init` function:
 
 ```ts
 export function init(el: HTMLElement) {
@@ -244,17 +239,18 @@ export function init(el: HTMLElement) {
 }
 ```
 
+The compiler generates `tinyfx.gen.ts` — a small registry that initializes components on page load.
 
-The compiler generates a small registry and initializes components on page load.
+---
 
-### Go SSR integration
+## Go SSR integration
 
 tinyfx is designed to work with Go templates, not against them.
 
 Typical flow:
 
 1. Go renders HTML (templates)
-2. tinyfx compiler processes components
+2. `tinyfx build` processes components
 3. Browser loads final HTML
 4. Runtime enhances the DOM
 
@@ -266,8 +262,34 @@ Optional state hydration:
 </script>
 ```
 
-
 No hydration framework required.
+
+---
+
+## Project structure (this repo)
+
+```
+tinyfx/
+├─ compiler/          # Rust CLI (cargo install --path compiler)
+│  └─ src/
+│     ├─ main.rs      # CLI entry (init, build commands)
+│     ├─ config.rs    # tinyfx.toml parser
+│     ├─ init.rs      # Project scaffolder (embedded templates)
+│     └─ build/
+│        ├─ mod.rs        # Two-phase build orchestrator
+│        ├─ component.rs  # HTML component resolver
+│        └─ glue.rs       # tinyfx.gen.ts generator
+├─ runtime/           # @tinyfx/runtime npm package
+│  └─ src/
+│     ├─ signals.ts   # Signal + effect
+│     ├─ dom.ts       # bindText, bindAttr, bindClass
+│     ├─ http.ts      # Typed HTTP client
+│     └─ index.ts     # Barrel export
+├─ examples/          # Template files (embedded into CLI at compile time)
+└─ README.md
+```
+
+---
 
 ## Design principles
 
@@ -277,7 +299,9 @@ No hydration framework required.
 4. Avoid cleverness
 5. Keep the total codebase small enough to understand
 
-If a feature makes the project feel like a framework — it probably doesn’t belong.
+If a feature makes the project feel like a framework — it probably doesn't belong.
+
+---
 
 ## Status
 
@@ -290,4 +314,5 @@ The goal is not to compete with frameworks, but to:
 - stay maintainable over time
 
 ## License
+
 MIT
