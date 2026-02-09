@@ -9,7 +9,8 @@
     ".": "./dist/index.js",
     "./signals": "./dist/signals.js",
     "./dom": "./dist/dom.js",
-    "./http": "./dist/http.js"
+    "./http": "./dist/http.js",
+    "./di": "./dist/di.js"
   },
   "files": [
     "dist"

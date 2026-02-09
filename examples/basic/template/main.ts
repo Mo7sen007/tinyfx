@@ -2,11 +2,16 @@
 // This file runs after the page loads and initializes
 // any compiled components that have behavior attached.
 import { signal, effect } from "@tinyfx/runtime";
-import { initComponents } from "./tinyfx.gen";
+import { Container } from "@tinyfx/runtime/di";
+import { setupComponents } from "./tinyfx.gen";
 
-// Initialize all <data-component> elements on the page
+// 1. Create a DI container and register services
+const container = new Container();
+// container.provide(MyService, new MyService());
+
+// 2. Initialize all <data-component> elements on the page
 document.addEventListener("DOMContentLoaded", () => {
-  initComponents();
+  setupComponents(container);
 });
 
 // Example: reactive counter

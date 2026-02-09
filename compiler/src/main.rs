@@ -1,6 +1,7 @@
 mod build;
 mod config;
 mod init;
+mod generate;
 
 use std::path::PathBuf;
 
@@ -38,6 +39,11 @@ enum Command {
         #[arg(long, default_value = "tinyfx.toml")]
         config: PathBuf,
     },
+    /// Generate code (components, services, interfaces, pages)
+    G {
+        #[command(subcommand)]
+        generator: generate::Gen,
+    },
 }
 
 fn main() -> Result<()> {
@@ -50,6 +56,9 @@ fn main() -> Result<()> {
         Command::Build { config: config_path } => {
             let cfg = load_config(&config_path).unwrap_or_default();
             build::run_build(&cfg)?;
+        }
+        Command::G { generator } => {
+            generate::run_generate(&generator)?;
         }
     }
 
