@@ -9,6 +9,7 @@ A lightweight collection of helpers for reactivity, DOM manipulation, and typed 
 - **Signals** — Explicit reactivity without Proxies.
 - **DOM Helpers** — One-way bindings for text, attributes, and classes.
 - **Typed HTTP** — Minimal wrapper over `fetch` with response typing.
+- **DI Container** — Simple `provide()`/`inject()` registry for app services.
 - **Tiny** — No dependencies, tree-shakeable, and extremely fast.
 
 ## Installation
@@ -76,6 +77,82 @@ const users = await api.get<User[]>("/users");
 await api.post("/users", { name: "Alice" });
 ```
 
+### DI Container (provide / inject)
+
+TinyFX includes a small dependency injection container to avoid importing singleton instances everywhere.
+
+Import it from `@tinyfx/runtime/di`:
+
+```ts
+import { Container } from "@tinyfx/runtime/di";
+
+class Config {
+  constructor(public baseUrl: string) {}
+}
+
+const container = new Container();
+container.provide(Config, new Config("/api"));
+
+const cfg = container.inject(Config);
+console.log(cfg.baseUrl);
+```
+
+#### Using DI with tinyfx components
+
+When you use the tinyfx compiler, the generated glue calls your component behavior as:
+
+```ts
+init(el, { container })
+```
+
+So your component can inject services without importing global singletons:
+
+```ts
+import type { TinyFxContext } from "@tinyfx/runtime/di";
+import { HttpService } from "../lib/http.service";
+
+export function init(el: HTMLElement, ctx: TinyFxContext) {
+  const http = ctx.container.inject(HttpService);
+  http.getWeather().then((text) => {
+    el.textContent = text;
+  });
+}
+```
+
+#### Example: service that uses the HTTP helper
+
+```ts
+// src/lib/http.service.ts
+import { createHttp } from "@tinyfx/runtime";
+
+export class HttpService {
+  private readonly http;
+
+  constructor(baseUrl: string) {
+    this.http = createHttp({ baseUrl });
+  }
+
+  getWeather() {
+    // wttr.in can return plain text; your wrapper returns text when not JSON.
+    return this.http.get<string>("");
+  }
+}
+```
+
+```ts
+// src/main.ts
+import { Container } from "@tinyfx/runtime/di";
+import { setupComponents } from "./tinyfx.gen";
+import { HttpService } from "./lib/http.service";
+
+const container = new Container();
+container.provide(HttpService, new HttpService("https://wttr.in/tunisa"));
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupComponents(container);
+});
+```
+
 ## API Overview
 
 ### Signals
@@ -93,6 +170,13 @@ await api.post("/users", { name: "Alice" });
 - `client.post<T>(url: string, data?: any): Promise<T>`
 - `client.put<T>(url: string, data?: any): Promise<T>`
 - `client.del<T>(url: string): Promise<T>`
+
+### DI
+- `new Container()`
+- `container.provide(token, instance)`
+- `container.inject(token)`
+- `createToken<T>(description: string): symbol`
+- `TinyFxContext` (passed to component init via tinyfx glue)
 
 ## License
 

@@ -184,7 +184,20 @@ const user = await api.get<User>("/users/1");
 - configurable headers
 - GET, POST, PUT, DELETE
 
-No interceptors. No global state.
+Also supports timeouts, retries, query params, and request/response interceptors.
+
+### DI container (inject)
+
+To avoid importing singleton service instances everywhere, tinyfx supports a small DI container:
+
+```ts
+import { Container } from "@tinyfx/runtime/di";
+
+const container = new Container();
+// container.provide(MyService, new MyService());
+```
+
+When using tinyfx build glue, component `init()` functions receive `{ container }` so they can `inject()` services.
 
 ---
 
