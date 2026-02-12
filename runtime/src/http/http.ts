@@ -2,6 +2,7 @@
 // Thin, typed wrapper over fetch.
 
 import { HttpConfig, HttpError, HttpParseError, HttpTimeoutError, RequestOptions } from "./data";
+import { buildUrl, sleep } from "./helper";
 
 
 
@@ -77,7 +78,7 @@ export function createHttp(config: HttpConfig = {}) {
 
         let res: Response;
         try {
-          res = await fetch(base + requestUrl, fetchOptions);
+          res = await fetch(requestUrl, fetchOptions);
         } catch (err) {
           clearTimeout(timeoutId);
           if (err instanceof Error && err.name === "AbortError") {
