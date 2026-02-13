@@ -8,7 +8,7 @@ export function createToken<T>(description: string): Token<T> {
   return Symbol(description);
 }
 
-/** Context passed to every component's init() function. */
+/** Context passed to every component's mount() factory function. */
 export interface TinyFxContext {
   container: Container;
 }

@@ -1,6 +1,5 @@
 // tinyfx entry point
-// This file runs after the page loads and initializes
-// any compiled components that have behavior attached.
+// Runs after the page loads and mounts all class-based components.
 import { signal, effect } from "@tinyfx/runtime";
 import { Container } from "@tinyfx/runtime/di";
 import { setupComponents } from "./tinyfx.gen";
@@ -9,9 +8,10 @@ import { setupComponents } from "./tinyfx.gen";
 const container = new Container();
 // container.provide(MyService, new MyService());
 
-// 2. Initialize all <data-component> elements on the page
+// 2. Mount all <data-component> elements on the page
 document.addEventListener("DOMContentLoaded", () => {
-  setupComponents(container);
+  const instances = setupComponents(container);
+  // `instances` holds every mounted component for optional teardown
 });
 
 // Example: reactive counter

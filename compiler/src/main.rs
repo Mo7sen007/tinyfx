@@ -1,7 +1,7 @@
 mod build;
 mod config;
-mod init;
 mod generate;
+mod init;
 
 use std::path::PathBuf;
 
@@ -38,6 +38,12 @@ enum Command {
         /// Path to config file
         #[arg(long, default_value = "tinyfx.toml")]
         config: PathBuf,
+
+        #[arg(long, default_value_t = false)]
+        phase_one_only: bool,
+        /// Override the assets directory for this build
+        #[arg(long)]
+        assets_dir: Option<PathBuf>,
     },
     /// Generate code (components, services, interfaces, pages)
     G {
@@ -53,8 +59,16 @@ fn main() -> Result<()> {
         Command::Init { name, force } => {
             init::run_init(&name, force)?;
         }
-        Command::Build { config: config_path } => {
-            let cfg = load_config(&config_path).unwrap_or_default();
+        Command::Build {
+            config: config_path,
+            phase_one_only,
+            assets_dir,
+        } => {
+            let mut cfg = load_config(&config_path).unwrap_or_default();
+            cfg.pahse_one_only = phase_one_only;
+            if let Some(dir) = assets_dir {
+                cfg.assets_dir = dir.to_string_lossy().into_owned();
+            }
             build::run_build(&cfg)?;
         }
         Command::G { generator } => {

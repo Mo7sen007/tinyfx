@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 
 use crate::config::Config;
@@ -26,10 +26,7 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     // ── Validate inputs ──────────────────────────────────────────
     let input_html = PathBuf::from(&cfg.entry_html);
     if !input_html.exists() {
-        bail!(
-            "error: source file not found\n  → {}",
-            input_html.display()
-        );
+        bail!("error: source file not found\n  → {}", input_html.display());
     }
     if !components_dir.exists() {
         bail!(
@@ -76,10 +73,22 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     if !used_components.is_empty() {
         let mut names: Vec<&String> = used_components.iter().collect();
         names.sort();
-        println!("  components: {}", names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+        println!(
+            "  components: {}",
+            names
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
     }
 
     println!();
+    if cfg.pahse_one_only {
+        println!("Stopped after phase 1(flag).");
+        //let _ = fs::remove_file(&gen_ts_path);
+        return Ok(());
+    }
 
     // ══════════════════════════════════════════════════════════════
     // Phase 2: Asset pipeline (delegated to external tools)
@@ -92,7 +101,10 @@ pub fn run_build(cfg: &Config) -> Result<()> {
         run_esbuild(&entry_path, &gen_ts_path, &out_js)?;
         println!("  ✔ {}/main.js (bundled)", out_js.display());
     } else {
-        println!("  · skipped JS bundling (entry not found: {})", cfg.entry_ts);
+        println!(
+            "  · skipped JS bundling (entry not found: {})",
+            cfg.entry_ts
+        );
     }
 
     // ── 2b. Copy CSS ─────────────────────────────────────────────
@@ -114,6 +126,20 @@ pub fn run_build(cfg: &Config) -> Result<()> {
         }
     }
 
+    // ── 2d. Copy assets directory ─────────────────────────────────
+    let assets_src = PathBuf::from(&cfg.assets_dir);
+    if assets_src.exists() {
+        let dest = out_dir.join(
+            assets_src
+                .file_name()
+                .unwrap_or_else(|| assets_src.as_os_str()),
+        );
+        copy_dir_contents(&assets_src, &dest)?;
+        println!("  ✔ {}/  (copied assets)", dest.display());
+    } else {
+        println!("  · skipped assets (not found: {})", cfg.assets_dir);
+    }
+
     // ── Cleanup: remove intermediate .ts file ────────────────────
     let _ = fs::remove_file(&gen_ts_path);
 
@@ -132,11 +158,15 @@ fn rewrite_html_paths(html: &str) -> String {
 
     // Rewrite CSS: ./styles/*.css → ./css/*.css
     let css_re = Regex::new(r#"href="\.?/?styles/([^"]+\.css)""#).unwrap();
-    result = css_re.replace_all(&result, r#"href="./css/$1""#).to_string();
+    result = css_re
+        .replace_all(&result, r#"href="./css/$1""#)
+        .to_string();
 
     // Rewrite JS: ./main.ts or src="main.ts" → ./js/main.js
     let js_re = Regex::new(r#"src="\.?/?[^"]*\.ts""#).unwrap();
-    result = js_re.replace_all(&result, r#"src="./js/main.js""#).to_string();
+    result = js_re
+        .replace_all(&result, r#"src="./js/main.js""#)
+        .to_string();
 
     result
 }
@@ -159,7 +189,7 @@ import "{}";
 
     // Try to find esbuild: local node_modules first, then global, then npx
     let esbuild_cmd = find_esbuild()?;
-    
+
     // If using npx, add 'esbuild' as the next argument
     let mut cmd = if esbuild_cmd == "npx" {
         let mut c = Command::new("npx");
@@ -218,12 +248,9 @@ fn find_esbuild() -> Result<String> {
 
 /// Recursively copy directory contents
 fn copy_dir_contents(src: &Path, dest: &Path) -> Result<()> {
-    fs::create_dir_all(dest)
-        .with_context(|| format!("Failed to create {}", dest.display()))?;
+    fs::create_dir_all(dest).with_context(|| format!("Failed to create {}", dest.display()))?;
 
-    for entry in fs::read_dir(src)
-        .with_context(|| format!("Failed to read {}", src.display()))?
-    {
+    for entry in fs::read_dir(src).with_context(|| format!("Failed to read {}", src.display()))? {
         let entry = entry?;
         let src_path = entry.path();
         let dest_path = dest.join(entry.file_name());
@@ -231,8 +258,13 @@ fn copy_dir_contents(src: &Path, dest: &Path) -> Result<()> {
         if src_path.is_dir() {
             copy_dir_contents(&src_path, &dest_path)?;
         } else {
-            fs::copy(&src_path, &dest_path)
-                .with_context(|| format!("Failed to copy {} → {}", src_path.display(), dest_path.display()))?;
+            fs::copy(&src_path, &dest_path).with_context(|| {
+                format!(
+                    "Failed to copy {} → {}",
+                    src_path.display(),
+                    dest_path.display()
+                )
+            })?;
         }
     }
 

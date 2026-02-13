@@ -1,11 +1,9 @@
-
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 
 static GENERATORS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../examples/generators");
 
@@ -57,10 +55,7 @@ pub fn run_generate(cmd: &Gen) -> Result<()> {
 fn gen_component(name: &str, force: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
-    let component_dir = base
-        .join("src")
-        .join("components")
-        .join(&names.pascal);
+    let component_dir = base.join("src").join("components").join(&names.pascal);
 
     let html = render_template("component/Component.html", &names)?;
     let ts = render_template("component/Component.ts", &names)?;
@@ -159,9 +154,8 @@ fn write_file(path: &Path, content: &str, force: bool) -> Result<bool> {
     }
 
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
-            format!("Failed to create directory: {}", parent.display())
-        })?;
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
     }
 
     fs::write(path, content)
@@ -187,17 +181,11 @@ impl NameSet {
             bail!("Name is invalid");
         }
 
-        let pascal = words
-            .iter()
-            .map(|w| capitalize(w))
-            .collect::<String>();
+        let pascal = words.iter().map(|w| capitalize(w)).collect::<String>();
 
         let camel = {
             let mut iter = words.iter();
-            let first = iter
-                .next()
-                .map(|w| w.to_lowercase())
-                .unwrap_or_default();
+            let first = iter.next().map(|w| w.to_lowercase()).unwrap_or_default();
             let rest = iter.map(|w| capitalize(w)).collect::<String>();
             format!("{}{}", first, rest)
         };
@@ -208,7 +196,11 @@ impl NameSet {
             .collect::<Vec<_>>()
             .join("-");
 
-        Ok(Self { pascal, camel, kebab })
+        Ok(Self {
+            pascal,
+            camel,
+            kebab,
+        })
     }
 }
 

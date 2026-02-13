@@ -3,7 +3,7 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::{Context, Result};
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 
 /// Templates are embedded at compile time from examples/basic/template/
 static TEMPLATES: Dir = include_dir!("$CARGO_MANIFEST_DIR/../examples/basic/template");
@@ -17,8 +17,7 @@ fn write_file(path: &Path, content: &str, force: bool) -> Result<bool> {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory {}", parent.display()))?;
     }
-    fs::write(path, content)
-        .with_context(|| format!("Failed to write {}", path.display()))?;
+    fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))?;
     Ok(true)
 }
 
@@ -68,7 +67,7 @@ styles     = "src/styles"
     "build": "tinyfx build"
   }},
   "dependencies": {{
-    "@tinyfx/runtime": "^0.1.0"
+    "@tinyfx/runtime": "^0.1.4"
   }},
   "devDependencies": {{
     "esbuild": "^0.27.0"
@@ -104,6 +103,8 @@ styles     = "src/styles"
         "src/lib/models",
         "src/lib/state",
         "src/styles",
+        "src/assets",
+        "assets",
     ];
     for d in &dirs {
         let dir_path = base.join(d);
@@ -116,18 +117,24 @@ styles     = "src/styles"
 
     // ── Copy embedded template files ─────────────────────────────
     let template_files = [
-        ("index.html",                    "src/index.html"),
-        ("main.ts",                       "src/main.ts"),
-        ("lib/http/client.ts",            "src/lib/http/client.ts"),
-        ("lib/http/index.ts",             "src/lib/http/index.ts"),
-        ("lib/dto/user.dto.ts",           "src/lib/dto/user.dto.ts"),
-        ("lib/dto/index.ts",              "src/lib/dto/index.ts"),
-        ("lib/models/user.model.ts",      "src/lib/models/user.model.ts"),
-        ("lib/models/index.ts",           "src/lib/models/index.ts"),
-        ("lib/state/app.state.ts",        "src/lib/state/app.state.ts"),
-        ("components/Button/Button.html", "src/components/Button/Button.html"),
-        ("components/Button/Button.ts",   "src/components/Button/Button.ts"),
-        ("styles/main.css",               "src/styles/main.css"),
+        ("index.html", "src/index.html"),
+        ("main.ts", "src/main.ts"),
+        ("lib/http/client.ts", "src/lib/http/client.ts"),
+        ("lib/http/index.ts", "src/lib/http/index.ts"),
+        ("lib/dto/user.dto.ts", "src/lib/dto/user.dto.ts"),
+        ("lib/dto/index.ts", "src/lib/dto/index.ts"),
+        ("lib/models/user.model.ts", "src/lib/models/user.model.ts"),
+        ("lib/models/index.ts", "src/lib/models/index.ts"),
+        ("lib/state/app.state.ts", "src/lib/state/app.state.ts"),
+        (
+            "components/Button/Button.html",
+            "src/components/Button/Button.html",
+        ),
+        (
+            "components/Button/Button.ts",
+            "src/components/Button/Button.ts",
+        ),
+        ("styles/main.css", "src/styles/main.css"),
     ];
 
     for (template_path, dest_path) in &template_files {

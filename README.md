@@ -55,6 +55,7 @@ This creates a standalone npm project:
 
 ```
 my-app/
+├─ assets/              # drop media (images, video, audio) or other raw files here
 ├─ src/
 │  ├─ index.html
 │  ├─ main.ts
@@ -73,6 +74,8 @@ my-app/
 ├─ tsconfig.json
 └─ tinyfx.toml
 ```
+
+`tinyfx init` creates the `assets/` directory so you have a dedicated place for pictures, videos, and other raw files that should land verbatim in the build output.
 
 Dependencies are installed automatically (`npm install`).
 
@@ -103,6 +106,7 @@ entry_ts   = "src/main.ts"
 out_dir    = "dist"
 components = "src/components"
 styles     = "src/styles"
+assets_dir = "assets"
 ```
 
 ---
@@ -120,10 +124,11 @@ tinyfx build
 │  ├─ Write dist/index.html (with rewritten asset paths)
 │  └─ Generate src/tinyfx.gen.ts (component init registry)
 │
-└─ Phase 2: Asset pipeline (delegated)
-   ├─ esbuild: bundle src/main.ts → dist/js/main.js
-   ├─ Copy src/styles/ → dist/css/
-   └─ Copy static assets (if configured)
+  └─ Phase 2: Asset pipeline (delegated)
+    ├─ esbuild: bundle src/main.ts → dist/js/main.js
+    ├─ Copy src/styles/ → dist/css/
+    ├─ Copy static assets (if configured)
+    └─ Copy assets/ → dist/assets/ (from `assets_dir`)
 ```
 
 The Rust CLI **never reimplements** JS/TS compilation — it delegates to esbuild.

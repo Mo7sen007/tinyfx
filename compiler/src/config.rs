@@ -20,10 +20,19 @@ pub struct Config {
     /// Static assets to copy verbatim
     #[serde(default)]
     pub static_dirs: Vec<String>,
+    /// Directory for user-managed assets that should be copied to the output
+    #[serde(default = "default_assets_dir")]
+    pub assets_dir: String,
+    ///For Debugging
+    pub pahse_one_only: bool,
 }
 
 fn default_styles() -> String {
     "src/styles".to_string()
+}
+
+fn default_assets_dir() -> String {
+    "assets".to_string()
 }
 
 impl Default for Config {
@@ -35,6 +44,8 @@ impl Default for Config {
             components: "src/components".to_string(),
             styles: "src/styles".to_string(),
             static_dirs: vec![],
+            assets_dir: default_assets_dir(),
+            pahse_one_only: false,
         }
     }
 }
