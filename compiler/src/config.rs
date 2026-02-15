@@ -32,7 +32,7 @@ fn default_styles() -> String {
 }
 
 fn default_assets_dir() -> String {
-    "assets".to_string()
+    "src/assets".to_string()
 }
 
 impl Default for Config {

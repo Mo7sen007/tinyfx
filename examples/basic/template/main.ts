@@ -15,18 +15,4 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // Example: reactive counter
-const count = signal(0);
-const incBtn = document.getElementById("inc");
 
-if (incBtn) {
-  incBtn.addEventListener("click", () => {
-    count.set(count() + 1);
-  });
-}
-
-effect(() => {
-  const el = document.getElementById("output");
-  if (el) {
-    el.textContent = `Count: ${count()}`;
-  }
-});

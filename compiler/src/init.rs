@@ -104,7 +104,7 @@ styles     = "src/styles"
         "src/lib/state",
         "src/styles",
         "src/assets",
-        "assets",
+        //"assets",
     ];
     for d in &dirs {
         let dir_path = base.join(d);
@@ -119,11 +119,11 @@ styles     = "src/styles"
     let template_files = [
         ("index.html", "src/index.html"),
         ("main.ts", "src/main.ts"),
-        ("lib/http/client.ts", "src/lib/http/client.ts"),
+        //("lib/http/client.ts", "src/lib/http/client.ts"),
         ("lib/http/index.ts", "src/lib/http/index.ts"),
-        ("lib/dto/user.dto.ts", "src/lib/dto/user.dto.ts"),
+        //("lib/dto/user.dto.ts", "src/lib/dto/user.dto.ts"),
         ("lib/dto/index.ts", "src/lib/dto/index.ts"),
-        ("lib/models/user.model.ts", "src/lib/models/user.model.ts"),
+        //("lib/models/user.model.ts", "src/lib/models/user.model.ts"),
         ("lib/models/index.ts", "src/lib/models/index.ts"),
         ("lib/state/app.state.ts", "src/lib/state/app.state.ts"),
         (

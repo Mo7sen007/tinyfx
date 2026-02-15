@@ -27,6 +27,21 @@ If you like Go templates, direct DOM access, and TypeScript safety, this is for 
 
 ---
 
+## Documentation
+
+Comprehensive documentation is available in the [docs/](docs) folder:
+
+- [**Introduction**](docs/introduction.md) - Core concepts and architecture.
+- [**Getting Started**](docs/getting-started.md) - Installation and basic workflow.
+- [**Components**](docs/components.md) - Templates, slots, and behavior logic.
+- [**Signals & Reactivity**](docs/signals.md) - Managing state with minimal overhead.
+- [**DOM Bindings**](docs/dom-helpers.md) - Helpers for syncing state to the UI.
+- [**HTTP Client**](docs/http-client.md) - Making type-safe requests.
+- [**Dependency Injection**](docs/dependency-injection.md) - Organizing application services.
+- [**CLI Reference**](docs/cli.md) - Command reference and configuration.
+
+---
+
 ## Requirements
 
 - **Rust** (for the CLI)
