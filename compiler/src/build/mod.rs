@@ -1,5 +1,6 @@
 mod component;
 mod glue;
+pub mod pages;
 
 use std::collections::HashSet;
 use std::fs;
@@ -63,8 +64,16 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     println!("  ✔ {}", out_html_path.display());
 
     // ── Generate tinyfx.gen.ts into src/ dir for bundling ────────
+    // Resolve pages first so the route map is baked into gen.ts in one pass.
+    let pages_dir = PathBuf::from(&cfg.pages);
+    let boilerplate = fs::read_to_string(&input_html).unwrap_or_default();
+    let resolved_pages =
+        pages::resolve_pages(&pages_dir, &out_dir, &components_dir).with_context(|| {
+            format!("Failed to resolve pages in {}", pages_dir.display())
+        })?;
+
     let src_dir = input_html.parent().unwrap_or(Path::new("."));
-    let gen_ts = glue::generate_registry(&used_components, &components_dir, src_dir);
+    let gen_ts = glue::generate_registry(&used_components, &components_dir, src_dir, &resolved_pages);
     let gen_ts_path = src_dir.join("tinyfx.gen.ts");
     fs::write(&gen_ts_path, &gen_ts)
         .with_context(|| format!("Failed to write {}", gen_ts_path.display()))?;
@@ -142,6 +151,20 @@ pub fn run_build(cfg: &Config) -> Result<()> {
 
     // ── Cleanup: remove intermediate .ts file ────────────────────
     let _ = fs::remove_file(&gen_ts_path);
+
+    // ══════════════════════════════════════════════════════════════
+    // Phase 3: Page routing
+    // ══════════════════════════════════════════════════════════════
+    if !resolved_pages.is_empty() {
+        println!("Phase 3: Page routing");
+        for page in &resolved_pages {
+            pages::write_page(page, &boilerplate).with_context(|| {
+                format!("Failed to write page '{}'", page.name)
+            })?;
+            println!("  ✔ {} ({})", page.out_path.display(), page.route);
+        }
+        println!();
+    }
 
     println!();
     println!("Done! Output in {}/", out_dir.display());

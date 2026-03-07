@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use super::pages::PageDef;
+
 /// Generate `tinyfx.gen.ts` — the component mount registry.
 ///
 /// For each used component that has a `.ts` file exporting a `mount()` factory,
@@ -9,7 +11,7 @@ use std::path::Path;
 ///
 /// `src_dir` is the directory where `tinyfx.gen.ts` will live (e.g. `src/`).
 /// Import paths are computed relative to that location.
-pub fn generate_registry(used: &HashSet<String>, components_dir: &Path, src_dir: &Path) -> String {
+pub fn generate_registry(used: &HashSet<String>, components_dir: &Path, src_dir: &Path, pages: &[PageDef]) -> String {
     let mut imports = Vec::new();
     let mut entries = Vec::new();
 
@@ -42,6 +44,11 @@ pub fn generate_registry(used: &HashSet<String>, components_dir: &Path, src_dir:
     out.push('\n');
     out.push_str("import { Container } from \"@tinyfx/runtime/di\";\n");
     out.push_str("import type { TinyFxContext } from \"@tinyfx/runtime/di\";\n");
+
+    // Emit router bootstrap only when there are pages.
+    if !pages.is_empty() {
+        out.push_str("import { initRouter } from \"@tinyfx/runtime\";\n");
+    }
     out.push('\n');
 
     if imports.is_empty() {
@@ -66,6 +73,21 @@ pub fn generate_registry(used: &HashSet<String>, components_dir: &Path, src_dir:
     }
 
     out.push('\n');
+    // Route map — emitted just before setupComponents so the router is
+    // initialised as soon as the glue module is imported.
+    if !pages.is_empty() {
+        out.push_str("initRouter({\n");
+        let mut sorted_pages = pages.to_vec();
+        sorted_pages.sort_by(|a, b| a.route.cmp(&b.route));
+        for page in &sorted_pages {
+            out.push_str(&format!(
+                "  \"{}\": {{ page: \"{}\", path: \"{}\" }},\n",
+                page.route, page.name, page.route
+            ));
+        }
+        out.push_str("});\n\n");
+    }
+
     out.push_str("/**\n");
     out.push_str(" * Initialize all components with a DI container.\n");
     out.push_str(" * Call this from main.ts after registering services.\n");
@@ -133,11 +155,12 @@ mod tests {
     #[test]
     fn empty_registry() {
         let used = HashSet::new();
-        let result = generate_registry(&used, Path::new("src/components"), Path::new("src"));
+        let result = generate_registry(&used, Path::new("src/components"), Path::new("src"), &[]);
         assert!(result.contains("const registry"));
         assert!(result.contains("setupComponents"));
         assert!(result.contains("import { Container }"));
         assert!(!result.contains("import { mount"));
+        assert!(!result.contains("initRouter"));
         // Legacy initComponents was removed — should NOT be present
         assert!(!result.contains("initComponents"));
     }

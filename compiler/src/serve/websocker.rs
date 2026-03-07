@@ -37,7 +37,7 @@ async fn handle_client(stream: tokio::net::TcpStream, mut rx: broadcast::Receive
     loop {
         match rx.recv().await {
             Ok(()) => {
-                if sink.send(Message::Text("reload".to_string())).await.is_err() {
+                if sink.send(Message::Text("reload".to_string().into())).await.is_err() {
                     break; // client disconnected — stop the task
                 }
             }

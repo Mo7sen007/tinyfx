@@ -21,6 +21,9 @@ components = "src/components"
 
 # Path to static assets/styles (optional)
 styles     = "src/styles"
+
+# Pages directory for the file-based router (optional, defaults to "src/pages")
+pages      = "src/pages"
 ```
 
 ## Commands
@@ -38,7 +41,8 @@ Compiles the project. It performs the following steps:
 2.  **Property Interpolation**: Replaces `{{ prop }}` placeholders with attribute values.
 3.  **Slot Injection**: Places children of component tags into `<slot></slot>` locations.
 4.  **Code Generation**: Scans for `.ts` files in the component directories and generates `tinyfx.gen.ts`.
-5.  **Output**: Writes the final HTML and generated TypeScript files to the `out_dir`.
+5.  **Page Routing**: If `src/pages/` exists, scans it for `.html` page files, expands components, wraps in layouts, and writes each page as a real HTML file under `dist/`. The route map is embedded in `tinyfx.gen.ts`.
+6.  **Output**: Writes the final HTML and generated TypeScript files to the `out_dir`.
 
 ```bash
 tinyfx build

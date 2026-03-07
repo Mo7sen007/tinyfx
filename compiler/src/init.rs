@@ -85,7 +85,7 @@ styles     = "src/styles"
     "target": "ES2015",
     "lib": ["ES2015", "DOM"],
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "strict": true,
     "outDir": "./dist"
   },

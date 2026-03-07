@@ -1,5 +1,5 @@
 # tinyfx project configuration
-
+entry      = "src"
 entry_html = "src/index.html"
 entry_ts   = "src/main.ts"
 out_dir    = "dist"

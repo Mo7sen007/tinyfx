@@ -53,8 +53,9 @@ enum Command {
     },
     /// Serve the project
     Serve {
-        /// Directory to serve
-        dir: PathBuf,
+        /// Path to config file
+        #[arg(long, default_value = "tinyfx.toml")]
+        config: PathBuf,
     },
 }
 
@@ -81,8 +82,10 @@ fn main() -> Result<()> {
             generate::run_generate(&generator)?;
         }
 
-        Command :: Serve { dir } => {
-            serve::run_serve(dir)?;
+        Command :: Serve { config: config_path } => {
+            
+            let cfg = load_config(&config_path).unwrap_or_default();
+            serve::run_serve(&cfg)?;
         }
     }
 
