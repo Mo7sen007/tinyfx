@@ -106,8 +106,20 @@ The compiler will:
 
 ### 4. Run the Development Server
 
-You can use any static file server to serve the `dist` folder. For example:
+TinyFX has a built-in dev server with **automatic live reload**. After building, point it at the output directory:
 
 ```bash
-npx serve dist
+tinyfx serve dist
+```
+
+This starts an HTTP server at `http://localhost:3000` and a WebSocket server at `ws://localhost:3001`. Any time a file in `dist/` changes, connected browsers reload automatically — no manual refresh needed.
+
+For a continuous build-and-reload workflow, run the build in watch mode in one terminal and `tinyfx serve` in another:
+
+```bash
+# Terminal 1
+tinyfx build && npm run watch
+
+# Terminal 2
+tinyfx serve dist
 ```

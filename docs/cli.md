@@ -57,6 +57,38 @@ tinyfx g component UserProfile
 tinyfx g service AuthService
 ```
 
+### `serve <dir>`
+
+Starts a local development server with **live reload**.
+
+```bash
+tinyfx serve dist
+```
+
+| Port | Purpose |
+|------|---------|
+| `3000` | HTTP file server (static assets) |
+| `3001` | WebSocket endpoint for live reload |
+
+How it works:
+1. An HTTP server on port `3000` serves static files from `<dir>`.
+2. A WebSocket server on port `3001` is started for browser notifications.
+3. TinyFX watches `<dir>` recursively for any file change.
+4. A small inline `<script>` is injected into every HTML response that connects to the WebSocket and calls `location.reload()` when a `"reload"` message is received.
+5. When a file change is detected (with a 100 ms debounce to coalesce bursts), all connected browsers reload automatically.
+
+Typical development loop:
+
+```bash
+# Terminal 1 — rebuild on source change (use your bundler's watch mode)
+tinyfx build && npm run watch
+
+# Terminal 2 — serve and live-reload
+tinyfx serve dist
+```
+
+---
+
 ## Build Phases
 
 TinyFX can sometimes be run in "Phase 1 only" mode (mostly for internal use) which just expands components without doing a full build.

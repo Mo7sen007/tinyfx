@@ -2,6 +2,7 @@ mod build;
 mod config;
 mod generate;
 mod init;
+mod serve;
 
 use std::path::PathBuf;
 
@@ -50,6 +51,11 @@ enum Command {
         #[command(subcommand)]
         generator: generate::Gen,
     },
+    /// Serve the project
+    Serve {
+        /// Directory to serve
+        dir: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -73,6 +79,10 @@ fn main() -> Result<()> {
         }
         Command::G { generator } => {
             generate::run_generate(&generator)?;
+        }
+
+        Command :: Serve { dir } => {
+            serve::run_serve(dir)?;
         }
     }
 
