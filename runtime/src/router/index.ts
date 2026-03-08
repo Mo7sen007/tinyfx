@@ -1,11 +1,13 @@
 // @tinyfx/runtime — router entry point
 
 import type { RouteMap } from "./types";
-import { resolveParams } from "./params";
+import { navigate, goBack } from "./navigate";
+import { getParam, resolveParams } from "./params";
 import { initLifecycle } from "./lifecycle";
 import { highlightActiveLinks } from "./active-links";
 
 export type { RouteMap };
+export { navigate, goBack, getParam };
 
 /**
  * Initialise the TinyFX router for the current page.

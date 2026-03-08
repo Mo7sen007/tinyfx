@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use tokio::sync::broadcast;
 
+use crate::build;
 use crate::config;
 
 use super::server;
@@ -14,6 +15,8 @@ use super::websocker;
 /// then drives the file watcher on the current thread (it runs until the
 /// process is killed).
 async fn run_async(config: &config::Config) -> Result<()> {
+    build::run_build(config)?;
+
     // The HTTP server serves from the *output* directory, not the source tree.
     let out_dir = Arc::new(PathBuf::from(&config.out_dir));
     // Broadcast channel: watcher sends `()`, WebSocket clients receive it.

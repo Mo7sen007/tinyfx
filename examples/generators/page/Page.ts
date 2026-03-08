@@ -1,22 +1,16 @@
 // {{Name}} page
 
-import type { TinyFxContext } from "@tinyfx/runtime/di";
+import { onMount, onDestroy } from "@tinyfx/runtime";
+import type { TinyFxContext } from "@tinyfx/runtime";
 
-export class {{Name}}Page {
-  constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
+export function init(el: HTMLElement, ctx: TinyFxContext): void {
+  onMount(() => {
+    console.log("{{Name}} page mounted", el);
+    // setup: read ctx.params, bind state, initialize components, etc.
+    void ctx;
+  });
 
-  init(): void {
-    console.log("{{Name}}Page mounted", this.el);
-  }
-
-  destroy?(): void {
-    // optional teardown
-  }
-}
-
-// Factory used by tinyfx.gen.ts
-export function mount(el: HTMLElement, ctx: TinyFxContext) {
-  const inst = new {{Name}}Page(el, ctx);
-  inst.init();
-  return inst;
+  onDestroy(() => {
+    // teardown: remove event listeners, cancel requests, etc.
+  });
 }

@@ -6,14 +6,19 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
+    #[serde(default = "default_entry_root")]
     pub entry : String,
     /// Path to the HTML entry (relative to project root)
+    #[serde(default = "default_entry_html")]
     pub entry_html: String,
     /// Path to the TS entry (relative to project root)
+    #[serde(default = "default_entry_ts")]
     pub entry_ts: String,
     /// Output directory
+    #[serde(default = "default_out_dir")]
     pub out_dir: String,
     /// Components directory
+    #[serde(default = "default_components_dir")]
     pub components: String,
     /// Styles directory
     #[serde(default = "default_styles")]
@@ -28,7 +33,28 @@ pub struct Config {
     #[serde(default = "default_pages_dir")]
     pub pages: String,
     ///For Debugging
+    #[serde(default)]
     pub pahse_one_only: bool,
+}
+
+fn default_entry_root() -> String {
+    "src".to_string()
+}
+
+fn default_entry_html() -> String {
+    "src/index.html".to_string()
+}
+
+fn default_entry_ts() -> String {
+    "src/main.ts".to_string()
+}
+
+fn default_out_dir() -> String {
+    "dist".to_string()
+}
+
+fn default_components_dir() -> String {
+    "src/components".to_string()
 }
 
 fn default_styles() -> String {
@@ -46,11 +72,11 @@ fn default_pages_dir() -> String {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            entry: "src/".to_string(),
-            entry_html: "src/index.html".to_string(),
-            entry_ts: "src/main.ts".to_string(),
-            out_dir: "dist".to_string(),
-            components: "src/components".to_string(),
+            entry: default_entry_root(),
+            entry_html: default_entry_html(),
+            entry_ts: default_entry_ts(),
+            out_dir: default_out_dir(),
+            components: default_components_dir(),
             styles: "src/styles".to_string(),
             static_dirs: vec![],
             assets_dir: default_assets_dir(),

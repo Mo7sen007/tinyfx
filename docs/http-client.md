@@ -4,7 +4,7 @@ TinyFX includes a thin, type-safe wrapper around the standard `fetch` API called
 
 ## Creating a Client
 
-You typically create an HTTP client instance and provide it through the DI container.
+You typically create an HTTP client instance inside a service factory and consume that service from components/pages.
 
 ```typescript
 import { createHttp } from "@tinyfx/runtime";

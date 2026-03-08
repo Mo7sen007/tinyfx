@@ -37,7 +37,7 @@ Comprehensive documentation is available in the [docs/](docs) folder:
 - [**Signals & Reactivity**](docs/signals.md) - Managing state with minimal overhead.
 - [**DOM Bindings**](docs/dom-helpers.md) - Helpers for syncing state to the UI.
 - [**HTTP Client**](docs/http-client.md) - Making type-safe requests.
-- [**Dependency Injection**](docs/dependency-injection.md) - Organizing application services.
+- [**Context & Services**](docs/dependency-injection.md) - Passing route context and creating services explicitly.
 - [**CLI Reference**](docs/cli.md) - Command reference and configuration.
 
 ---
@@ -70,27 +70,26 @@ This creates a standalone npm project:
 
 ```
 my-app/
-├─ assets/              # drop media (images, video, audio) or other raw files here
 ├─ src/
-│  ├─ index.html
+│  ├─ pages/
+│  │  └─ index.html
 │  ├─ main.ts
 │  ├─ components/
 │  │  └─ Button/
 │  │     ├─ Button.html
 │  │     └─ Button.ts
 │  ├─ lib/
-│  │  ├─ http/
 │  │  ├─ dto/
 │  │  ├─ models/
+│  │  ├─ services/
 │  │  └─ state/
 │  └─ styles/
 │     └─ main.css
 ├─ package.json          # @tinyfx/runtime + esbuild
+├─ AGENTS.md
 ├─ tsconfig.json
 └─ tinyfx.toml
 ```
-
-`tinyfx init` creates the `assets/` directory so you have a dedicated place for pictures, videos, and other raw files that should land verbatim in the build output.
 
 Dependencies are installed automatically (`npm install`).
 
@@ -104,7 +103,9 @@ Output:
 
 ```
 dist/
-├─ index.html    # component-expanded HTML
+├─ index.html    # root page output
+├─ about/
+│  └─ index.html # nested page output example
 ├─ js/main.js    # bundled + minified JS
 └─ css/main.css  # copied styles
 ```
@@ -116,12 +117,11 @@ dist/
 `tinyfx.toml` in your project root:
 
 ```toml
-entry_html = "src/index.html"
+pages      = "src/pages"
 entry_ts   = "src/main.ts"
 out_dir    = "dist"
 components = "src/components"
 styles     = "src/styles"
-assets_dir = "assets"
 ```
 
 ---
@@ -133,17 +133,17 @@ assets_dir = "assets"
 ```
 tinyfx build
 │
-├─ Phase 1: Component compilation (Rust)
-│  ├─ Read src/index.html
-│  ├─ Expand <component> tags → plain HTML + data-component attrs
-│  ├─ Write dist/index.html (with rewritten asset paths)
-│  └─ Generate src/tinyfx.gen.ts (component init registry)
-│
-  └─ Phase 2: Asset pipeline (delegated)
-    ├─ esbuild: bundle src/main.ts → dist/js/main.js
-    ├─ Copy src/styles/ → dist/css/
-    ├─ Copy static assets (if configured)
-    └─ Copy assets/ → dist/assets/ (from `assets_dir`)
+├─ Phase 1: Component compilation
+│  └─ Discover component templates in src/components/
+├─ Phase 2: Page processing
+│  ├─ Scan src/pages/**/*.html
+│  ├─ Expand component tags in each page
+│  └─ Write routed files to dist/
+├─ Phase 3: Asset pipeline
+│  ├─ esbuild: bundle src/main.ts → dist/js/main.js
+│  └─ Copy styles/assets
+└─ Phase 4: Glue generation
+   └─ Generate src/tinyfx.gen.ts from discovered pages/components
 ```
 
 The Rust CLI **never reimplements** JS/TS compilation — it delegates to esbuild.
@@ -206,18 +206,26 @@ const user = await api.get<User>("/users/1");
 
 Also supports timeouts, retries, query params, and request/response interceptors.
 
-### DI container (inject)
+### Context & services
 
-To avoid importing singleton service instances everywhere, tinyfx supports a small DI container:
+TinyFX passes a lightweight `TinyFxContext` into component/page behavior:
 
 ```ts
-import { Container } from "@tinyfx/runtime/di";
+import type { TinyFxContext } from "@tinyfx/runtime";
 
-const container = new Container();
-// container.provide(MyService, new MyService());
+export function init(el: HTMLElement, ctx: TinyFxContext) {
+  console.log(ctx.params);
+  ctx.navigate("/about");
+}
 ```
 
-When using tinyfx build glue, component `init()` functions receive `{ container }` so they can `inject()` services.
+Services are explicit factory functions (no runtime DI container):
+
+```ts
+import { createUserService } from "@services/user.service";
+
+const userService = createUserService();
+```
 
 ---
 

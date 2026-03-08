@@ -17,7 +17,7 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     println!();
 
     // ══════════════════════════════════════════════════════════════
-    // Phase 1: Template / Component compilation (Rust)
+    // Phase 1: Component compilation
     // ══════════════════════════════════════════════════════════════
     println!("Phase 1: Component compilation");
 
@@ -26,13 +26,18 @@ pub fn run_build(cfg: &Config) -> Result<()> {
 
     // ── Validate inputs ──────────────────────────────────────────
     let input_html = PathBuf::from(&cfg.entry_html);
-    if !input_html.exists() {
-        bail!("error: source file not found\n  → {}", input_html.display());
-    }
+    let pages_dir = PathBuf::from(&cfg.pages);
     if !components_dir.exists() {
         bail!(
             "error: components directory not found\n  → {}",
             components_dir.display()
+        );
+    }
+    if !input_html.exists() && !pages_dir.exists() {
+        bail!(
+            "error: no source entry found\n  → expected {} or {}",
+            input_html.display(),
+            pages_dir.display()
         );
     }
 
@@ -46,33 +51,47 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     fs::create_dir_all(&out_css)
         .with_context(|| format!("Failed to create {}", out_css.display()))?;
 
-    // ── Read source HTML ─────────────────────────────────────────
-    let html = fs::read_to_string(&input_html)
-        .with_context(|| format!("Failed to read {}", input_html.display()))?;
+    let mut used_components = discover_components(&components_dir)?;
+    println!("  ✔ discovered {} component(s)", used_components.len());
 
-    // ── Resolve components ───────────────────────────────────────
-    let mut used_components: HashSet<String> = HashSet::new();
-    let compiled_html = component::resolve_all(&html, &components_dir, &mut used_components)?;
+    // ══════════════════════════════════════════════════════════════
+    // Phase 2: Page processing
+    // ══════════════════════════════════════════════════════════════
+    println!("Phase 2: Page processing");
 
-    // ── Rewrite asset paths for production ───────────────────────
-    let final_html = rewrite_html_paths(&compiled_html);
-
-    // ── Write dist/index.html ────────────────────────────────────
-    let out_html_path = out_dir.join("index.html");
-    fs::write(&out_html_path, &final_html)
-        .with_context(|| format!("Failed to write {}", out_html_path.display()))?;
-    println!("  ✔ {}", out_html_path.display());
-
-    // ── Generate tinyfx.gen.ts into src/ dir for bundling ────────
-    // Resolve pages first so the route map is baked into gen.ts in one pass.
-    let pages_dir = PathBuf::from(&cfg.pages);
     let boilerplate = fs::read_to_string(&input_html).unwrap_or_default();
+
+    if input_html.exists() {
+        let html = fs::read_to_string(&input_html)
+            .with_context(|| format!("Failed to read {}", input_html.display()))?;
+        let compiled_html = component::resolve_all(&html, &components_dir, &mut used_components)?;
+        let final_html = rewrite_html_paths(&compiled_html);
+
+        let out_html_path = out_dir.join("index.html");
+        fs::write(&out_html_path, &final_html)
+            .with_context(|| format!("Failed to write {}", out_html_path.display()))?;
+        println!("  ✔ {}", out_html_path.display());
+    }
+
+    // Resolve pages so the route map can be baked into generated glue.
     let resolved_pages =
-        pages::resolve_pages(&pages_dir, &out_dir, &components_dir).with_context(|| {
+        pages::resolve_pages(&pages_dir, &out_dir, &components_dir, &mut used_components).with_context(|| {
             format!("Failed to resolve pages in {}", pages_dir.display())
         })?;
 
-    let src_dir = input_html.parent().unwrap_or(Path::new("."));
+    if !resolved_pages.is_empty() {
+        for page in &resolved_pages {
+            pages::write_page(page, &boilerplate).with_context(|| {
+                format!("Failed to write page '{}'", page.name)
+            })?;
+            println!("  ✔ {} ({})", page.out_path.display(), page.route);
+        }
+    } else {
+        println!("  · no pages found in {}", pages_dir.display());
+    }
+
+    let entry_ts = PathBuf::from(&cfg.entry_ts);
+    let src_dir = entry_ts.parent().unwrap_or(Path::new("."));
     let gen_ts = glue::generate_registry(&used_components, &components_dir, src_dir, &resolved_pages);
     let gen_ts_path = src_dir.join("tinyfx.gen.ts");
     fs::write(&gen_ts_path, &gen_ts)
@@ -100,9 +119,9 @@ pub fn run_build(cfg: &Config) -> Result<()> {
     }
 
     // ══════════════════════════════════════════════════════════════
-    // Phase 2: Asset pipeline (delegated to external tools)
+    // Phase 3: Asset pipeline (delegated to external tools)
     // ══════════════════════════════════════════════════════════════
-    println!("Phase 2: Asset pipeline");
+    println!("Phase 3: Asset pipeline");
 
     // ── 2a. Bundle JS/TS with esbuild ────────────────────────────
     let entry_path = PathBuf::from(&cfg.entry_ts);
@@ -149,26 +168,53 @@ pub fn run_build(cfg: &Config) -> Result<()> {
         println!("  · skipped assets (not found: {})", cfg.assets_dir);
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // Phase 4: Glue generation
+    // ══════════════════════════════════════════════════════════════
+    println!("Phase 4: Glue generation");
+    println!("  ✔ {}", gen_ts_path.display());
+
     // ── Cleanup: remove intermediate .ts file ────────────────────
     let _ = fs::remove_file(&gen_ts_path);
-
-    // ══════════════════════════════════════════════════════════════
-    // Phase 3: Page routing
-    // ══════════════════════════════════════════════════════════════
-    if !resolved_pages.is_empty() {
-        println!("Phase 3: Page routing");
-        for page in &resolved_pages {
-            pages::write_page(page, &boilerplate).with_context(|| {
-                format!("Failed to write page '{}'", page.name)
-            })?;
-            println!("  ✔ {} ({})", page.out_path.display(), page.route);
-        }
-        println!();
-    }
 
     println!();
     println!("Done! Output in {}/", out_dir.display());
     println!();
+
+    Ok(())
+}
+
+fn discover_components(components_dir: &Path) -> Result<HashSet<String>> {
+    let mut discovered = HashSet::new();
+    collect_components(components_dir, &mut discovered)?;
+    Ok(discovered)
+}
+
+fn collect_components(dir: &Path, discovered: &mut HashSet<String>) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("Failed to read {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            collect_components(&path, discovered)?;
+            continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) != Some("html") {
+            continue;
+        }
+
+        if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+            if name
+                .chars()
+                .next()
+                .map(|ch| ch.is_ascii_uppercase())
+                .unwrap_or(false)
+            {
+                discovered.insert(name.to_string());
+            }
+        }
+    }
 
     Ok(())
 }

@@ -45,3 +45,7 @@ export function resolveParams(pattern: string, pathname: string): boolean {
 export function getParam(key: string): string | undefined {
   return currentParams[key];
 }
+
+export function getParams(): Record<string, string> {
+  return { ...currentParams };
+}

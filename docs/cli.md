@@ -7,10 +7,10 @@ The `tinyfx` CLI is the main tool for managing your project and building your ap
 The behavior of the CLI is controlled by a `tinyfx.toml` file in your project root.
 
 ```toml
-# Main HTML entry point
-entry_html = "src/index.html"
+# Pages directory
+pages      = "src/pages"
 
-# TypeScript entry point (where setupComponents is called)
+# TypeScript entry point
 entry_ts   = "src/main.ts"
 
 # Output directory for the build
@@ -22,8 +22,6 @@ components = "src/components"
 # Path to static assets/styles (optional)
 styles     = "src/styles"
 
-# Pages directory for the file-based router (optional, defaults to "src/pages")
-pages      = "src/pages"
 ```
 
 ## Commands
@@ -37,12 +35,12 @@ tinyfx init my-app
 
 ### `build`
 Compiles the project. It performs the following steps:
-1.  **Template Expansion**: Scans the `entry_html` for `<component>` tags and replaces them with corresponding template files from the `components` directory.
+1.  **Component Discovery**: Scans `src/components/` recursively for component templates.
 2.  **Property Interpolation**: Replaces `{{ prop }}` placeholders with attribute values.
 3.  **Slot Injection**: Places children of component tags into `<slot></slot>` locations.
-4.  **Code Generation**: Scans for `.ts` files in the component directories and generates `tinyfx.gen.ts`.
-5.  **Page Routing**: If `src/pages/` exists, scans it for `.html` page files, expands components, wraps in layouts, and writes each page as a real HTML file under `dist/`. The route map is embedded in `tinyfx.gen.ts`.
-6.  **Output**: Writes the final HTML and generated TypeScript files to the `out_dir`.
+4.  **Page Processing**: Scans all `.html` pages in `src/pages/`, expands components, and writes routed output into `dist/`.
+5.  **Asset Pipeline**: Bundles `src/main.ts` to `dist/js/main.js`, copies styles/assets.
+6.  **Glue Generation**: Generates `src/tinyfx.gen.ts` route/component wiring from discovered pages and components.
 
 ```bash
 tinyfx build
@@ -52,21 +50,22 @@ tinyfx build
 Generates new files based on templates.
 
 - **`g component <name>`**: Creates a new component folder with HTML and TS files.
-- **`g service <name>`**: Creates a new service file.
-- **`g interface <name>`**: Creates a new TypeScript interface.
-- **`g page <name>`**: Creates a new page component.
+- **`g service <name>`**: Creates `src/lib/services/<name>.service.ts` service factory.
+- **`g model <name>`**: Creates `src/lib/models/<name>.model.ts`.
+- **`g dto <name>`**: Creates `src/lib/dto/<name>.dto.ts`.
+- **`g page <name>`**: Creates `src/pages/<name>.html` and `src/pages/<name>.ts`.
 
 ```bash
 tinyfx g component UserProfile
 tinyfx g service AuthService
 ```
 
-### `serve <dir>`
+### `serve`
 
 Starts a local development server with **live reload**.
 
 ```bash
-tinyfx serve dist
+tinyfx serve
 ```
 
 | Port | Purpose |
@@ -75,9 +74,9 @@ tinyfx serve dist
 | `3001` | WebSocket endpoint for live reload |
 
 How it works:
-1. An HTTP server on port `3000` serves static files from `<dir>`.
+1. An HTTP server on port `3000` serves static files from `out_dir` in `tinyfx.toml`.
 2. A WebSocket server on port `3001` is started for browser notifications.
-3. TinyFX watches `<dir>` recursively for any file change.
+3. TinyFX watches `src/` recursively for source changes.
 4. A small inline `<script>` is injected into every HTML response that connects to the WebSocket and calls `location.reload()` when a `"reload"` message is received.
 5. When a file change is detected (with a 100 ms debounce to coalesce bursts), all connected browsers reload automatically.
 
@@ -88,7 +87,7 @@ Typical development loop:
 tinyfx build && npm run watch
 
 # Terminal 2 — serve and live-reload
-tinyfx serve dist
+tinyfx serve
 ```
 
 ---

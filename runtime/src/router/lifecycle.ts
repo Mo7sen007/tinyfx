@@ -12,7 +12,12 @@ const destroyCallbacks: LifecycleCallback[] = [];
  * - If the document is already loaded, the callback runs immediately.
  */
 export function onMount(fn: LifecycleCallback): void {
-  mountCallbacks.push(fn);
+  if (document.readyState === "loading") {
+    mountCallbacks.push(fn);
+    return;
+  }
+
+  fn();
 }
 
 /**

@@ -1,14 +1,8 @@
 // @tinyfx/runtime — barrel export
-export { signal, effect, Signal } from "./signals";
+export { signal, effect } from "./signals";
 export { bindText, bindAttr, bindClass } from "./dom";
-export { createHttp } from "./http/http";
-export type { HttpConfig } from "./http/data";
-export { Container, createToken } from "./di";
-export type { Token, TinyFxContext } from "./di";
-
-// Router — hard file-based router
-export { initRouter } from "./router/index";
-export { getParam } from "./router/params";
+export { createHttp } from "./http";
+export { initRouter, getParam, navigate, goBack } from "./router/index";
 export { onMount, onDestroy } from "./router/lifecycle";
-export { navigate, goBack } from "./router/navigate";
+export type { TinyFxContext } from "./context";
 export type { RouteMap, RouteMeta } from "./router/types";

@@ -65,7 +65,7 @@ To add behavior to a component, export a class and a `mount` function.
 The class receives the component's root `HTMLElement` and the `TinyFxContext` in its constructor.
 
 ```typescript
-import { TinyFxContext } from "@tinyfx/runtime/di";
+import type { TinyFxContext } from "@tinyfx/runtime";
 import { bindText } from "@tinyfx/runtime";
 
 export class Alert {

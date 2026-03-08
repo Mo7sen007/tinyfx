@@ -74,9 +74,11 @@ pub fn resolve_all(
     let token_re =
         Regex::new(r"\{\{\s*([a-zA-Z0-9_-]+)\s*\}\}").context("Failed to compile token regex")?;
 
-    let mut html = input.to_string();
+    let mut html = normalize_component_tags(input)?;
 
     for iteration in 0..MAX_ITERATIONS {
+        html = normalize_component_tags(&html)?;
+
         // ── Step 1: Find the next component tag ──────────────────
         let Some(span) = find_component_span(&html) else {
             // No more `<component>` tags — we're done!
@@ -104,6 +106,15 @@ pub fn resolve_all(
 
         // ── Step 4: Load the template, render, and splice ────────
         let comp = Component::new(&name, components_dir);
+        if !comp.exists() {
+            eprintln!(
+                "  warning: component \"{}\" was referenced but not found at {}",
+                name,
+                comp.template_path.display()
+            );
+            html.replace_range(span.open_start..span.close_end, &slot_content);
+            continue;
+        }
         let rendered = comp.render(&attrs, &slot_content, &token_re)?;
 
         // Replace the original `<component …>…</component>` span with the
@@ -117,6 +128,42 @@ pub fn resolve_all(
         "error: component expansion exceeded {} iterations (possible circular dependency)",
         MAX_ITERATIONS
     );
+}
+
+fn normalize_component_tags(input: &str) -> Result<String> {
+    let self_closing_re =
+        Regex::new(r#"<([A-Z][A-Za-z0-9]*)\b([^>]*)/\s*>"#).context("Invalid self-closing component regex")?;
+    let open_tag_re =
+        Regex::new(r#"<([A-Z][A-Za-z0-9]*)\b([^>]*)>"#).context("Invalid component open-tag regex")?;
+    let close_tag_re =
+        Regex::new(r#"</([A-Z][A-Za-z0-9]*)\s*>"#).context("Invalid component close-tag regex")?;
+
+    let normalized = self_closing_re
+        .replace_all(input, |caps: &regex::Captures| {
+            let name = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let attrs = normalized_attrs(caps.get(2).map(|m| m.as_str()).unwrap_or_default());
+            format!("<component name=\"{}\"{}></component>", name, attrs)
+        })
+        .to_string();
+
+    let normalized = open_tag_re
+        .replace_all(&normalized, |caps: &regex::Captures| {
+            let name = caps.get(1).map(|m| m.as_str()).unwrap_or_default();
+            let attrs = normalized_attrs(caps.get(2).map(|m| m.as_str()).unwrap_or_default());
+            format!("<component name=\"{}\"{}>", name, attrs)
+        })
+        .to_string();
+
+    Ok(close_tag_re.replace_all(&normalized, "</component>").to_string())
+}
+
+fn normalized_attrs(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", trimmed)
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -170,5 +217,16 @@ mod tests {
 
         // Cleanup.
         fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn normalizes_pascal_case_component_tags() {
+        let normalized = normalize_component_tags(
+            r#"<Button variant="primary">Go</Button><Card />"#,
+        )
+        .unwrap();
+
+        assert!(normalized.contains(r#"<component name="Button" variant="primary">Go</component>"#));
+        assert!(normalized.contains(r#"<component name="Card"></component>"#));
     }
 }

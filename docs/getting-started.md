@@ -22,7 +22,7 @@ cd my-cool-app
 ```
 
 This creates a default project structure:
-- `src/index.html`: Your main HTML file.
+- `src/pages/index.html`: Your home page.
 - `src/main.ts`: Application entry point.
 - `src/components/`: Directory for your UI components.
 - `tinyfx.toml`: Configuration file.
@@ -55,7 +55,7 @@ This will create `src/components/MyButton/MyButton.html` and `src/components/MyB
 
 #### MyButton.ts
 ```typescript
-import { TinyFxContext } from "@tinyfx/runtime/di";
+import type { TinyFxContext } from "@tinyfx/runtime";
 
 export class MyButton {
   constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
@@ -76,18 +76,15 @@ export function mount(el: HTMLElement, ctx: TinyFxContext) {
 
 ### 2. Use the Component
 
-In your `src/index.html`, use the `<component>` tag:
+In your `src/pages/index.html`, use the component tag directly:
 
 ```html
-<!DOCTYPE html>
-<html>
-<body>
-  <h1>Welcome to TinyFX</h1>
-  <component name="MyButton">Click Me!</component>
-  
-  <script type="module" src="./main.ts"></script>
-</body>
-</html>
+<page route="/" layout="">
+  <main>
+    <h1>Welcome to TinyFX</h1>
+    <MyButton>Click Me!</MyButton>
+  </main>
+</page>
 ```
 
 ### 3. Build the Project
@@ -99,17 +96,17 @@ tinyfx build
 ```
 
 The compiler will:
-1.  Search `index.html` for `<component>` tags.
-2.  Replace them with the content from `src/components/MyButton/MyButton.html`.
+1.  Search all files in `src/pages/` for page definitions.
+2.  Expand component tags using templates from `src/components/`.
 3.  Generate `src/tinyfx.gen.ts` which imports `MyButton` and wires it up.
-4.  Output the final files to the `dist` directory.
+4.  Output routed HTML files to `dist/`.
 
 ### 4. Run the Development Server
 
-TinyFX has a built-in dev server with **automatic live reload**. After building, point it at the output directory:
+TinyFX has a built-in dev server with **automatic live reload**:
 
 ```bash
-tinyfx serve dist
+tinyfx serve
 ```
 
 This starts an HTTP server at `http://localhost:3000` and a WebSocket server at `ws://localhost:3001`. Any time a file in `dist/` changes, connected browsers reload automatically — no manual refresh needed.
@@ -121,5 +118,5 @@ For a continuous build-and-reload workflow, run the build in watch mode in one t
 tinyfx build && npm run watch
 
 # Terminal 2
-tinyfx serve dist
+tinyfx serve
 ```

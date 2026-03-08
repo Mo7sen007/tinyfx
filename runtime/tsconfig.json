@@ -3,7 +3,7 @@
     "target": "ES2017",
     "lib": ["ES2017", "DOM"],
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "strict": true,
     "declaration": true,
     "outDir": "./dist",

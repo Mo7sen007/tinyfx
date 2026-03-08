@@ -5,7 +5,7 @@ use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use include_dir::{Dir, include_dir};
 
-static GENERATORS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../examples/generators");
+static GENERATORS: Dir = include_dir!("$CARGO_MANIFEST_DIR/templates/generate");
 
 #[derive(Debug, Subcommand)]
 pub enum Gen {
@@ -27,6 +27,25 @@ pub enum Gen {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
+    /// Generate a model
+    #[command(name = "model", visible_alias = "m")]
+    Model {
+        /// Model name
+        name: String,
+        /// Overwrite existing files
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// Generate a dto
+    #[command(name = "dto", visible_alias = "d")]
+    Dto {
+        /// DTO name
+        name: String,
+        /// Overwrite existing files
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+    /// Generate an interface (legacy)
     /// Generate an interface
     #[command(name = "interface", visible_alias = "i")]
     Interface {
@@ -51,6 +70,8 @@ pub fn run_generate(cmd: &Gen) -> Result<()> {
     match cmd {
         Gen::Component { name, force } => gen_component(name, *force),
         Gen::Service { name, force } => gen_service(name, *force),
+        Gen::Model { name, force } => gen_model(name, *force),
+        Gen::Dto { name, force } => gen_dto(name, *force),
         Gen::Interface { name, force } => gen_interface(name, *force),
         Gen::Page { name, force } => gen_page(name, *force),
     }
@@ -61,8 +82,15 @@ fn gen_component(name: &str, force: bool) -> Result<()> {
     let base = project_root()?;
     let component_dir = base.join("src").join("components").join(&names.pascal);
 
-    let html = render_template("component/Component.html", &names)?;
-    let ts = render_template("component/Component.ts", &names)?;
+    if component_dir.exists() && !force {
+        bail!(
+            "Refusing to overwrite existing component directory: {} (use --force)",
+            component_dir.display()
+        );
+    }
+
+    let html = render_template("component.html", &names)?;
+    let ts = render_template("component.ts", &names)?;
 
     let html_path = component_dir.join(format!("{}.html", names.pascal));
     let ts_path = component_dir.join(format!("{}.ts", names.pascal));
@@ -78,11 +106,35 @@ fn gen_service(name: &str, force: bool) -> Result<()> {
     let names = ServiceNameSet::new(name)?;
     let base = project_root()?;
     let dir = base.join("src").join("lib").join("services");
-    let ts = read_template("service/Service.ts")?.replace("{{Name}}", &names.class_name);
+    let ts = read_template("service.ts")?.replace("{{Name}}", &names.display_name);
     let ts_path = dir.join(format!("{}.service.ts", names.file_stem));
 
     write_file(&ts_path, &ts, force)?;
-    println!("Generated service: {}", names.class_name);
+    println!("Generated service: {}", names.service_type_name());
+    Ok(())
+}
+
+fn gen_model(name: &str, force: bool) -> Result<()> {
+    let names = NameSet::new(name)?;
+    let base = project_root()?;
+    let dir = base.join("src").join("lib").join("models");
+    let ts = render_template("model.ts", &names)?;
+    let ts_path = dir.join(format!("{}.model.ts", names.kebab));
+
+    write_file(&ts_path, &ts, force)?;
+    println!("Generated model: {}", names.pascal);
+    Ok(())
+}
+
+fn gen_dto(name: &str, force: bool) -> Result<()> {
+    let names = NameSet::new(name)?;
+    let base = project_root()?;
+    let dir = base.join("src").join("lib").join("dto");
+    let ts = render_template("dto.ts", &names)?;
+    let ts_path = dir.join(format!("{}.dto.ts", names.kebab));
+
+    write_file(&ts_path, &ts, force)?;
+    println!("Generated dto: {}", names.pascal);
     Ok(())
 }
 
@@ -101,18 +153,35 @@ fn gen_interface(name: &str, force: bool) -> Result<()> {
 fn gen_page(name: &str, force: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
-    let dir = base.join("src").join("pages").join(&names.kebab);
-    let html = render_template("page/Page.html", &names)?;
-    let ts = render_template("page/Page.ts", &names)?;
+    let pages_dir = base.join("src").join("pages");
+    let route = page_route(&names.kebab);
+    let html = render_template("page.html", &names)?.replace("{{route}}", &route);
+    let ts = render_template("page.ts", &names)?;
 
-    let html_path = dir.join("index.html");
-    let ts_path = dir.join("index.ts");
+    let html_path = pages_dir.join(format!("{}.html", names.kebab));
+    let ts_path = pages_dir.join(format!("{}.ts", names.kebab));
+
+    if (html_path.exists() || ts_path.exists()) && !force {
+        bail!(
+            "Refusing to overwrite existing page files: {} and {} (use --force)",
+            html_path.display(),
+            ts_path.display()
+        );
+    }
 
     write_file(&html_path, &html, force)?;
     write_file(&ts_path, &ts, force)?;
 
     println!("Generated page: {}", names.pascal);
     Ok(())
+}
+
+fn page_route(kebab_name: &str) -> String {
+    if kebab_name == "index" {
+        "/".to_string()
+    } else {
+        format!("/{}", kebab_name)
+    }
 }
 
 fn project_root() -> Result<PathBuf> {
@@ -174,7 +243,7 @@ struct NameSet {
 }
 
 struct ServiceNameSet {
-    class_name: String,
+    display_name: String,
     file_stem: String,
 }
 
@@ -216,18 +285,26 @@ impl NameSet {
 impl ServiceNameSet {
     fn new(input: &str) -> Result<Self> {
         let names = NameSet::new(input)?;
-        let class_name = if names.pascal.ends_with("Service") {
-            names.pascal.clone()
+        let display_name = if names.pascal.ends_with("Service") {
+            names
+                .pascal
+                .strip_suffix("Service")
+                .unwrap_or(&names.pascal)
+                .to_string()
         } else {
-            format!("{}Service", names.pascal)
+            names.pascal.clone()
         };
 
         let file_stem = strip_trailing_segment(&names.kebab, "service");
 
         Ok(Self {
-            class_name,
+            display_name,
             file_stem,
         })
+    }
+
+    fn service_type_name(&self) -> String {
+        format!("{}Service", self.display_name)
     }
 }
 

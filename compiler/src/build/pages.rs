@@ -53,6 +53,7 @@ pub fn resolve_pages(
     pages_dir: &Path,
     out_dir: &Path,
     components_dir: &Path,
+    used_components: &mut HashSet<String>,
 ) -> Result<Vec<PageDef>> {
     if !pages_dir.exists() {
         // No pages directory — silently return empty; the router simply won't
@@ -61,7 +62,14 @@ pub fn resolve_pages(
     }
 
     let mut pages = Vec::new();
-    collect_pages(pages_dir, pages_dir, out_dir, components_dir, &mut pages)?;
+    collect_pages(
+        pages_dir,
+        pages_dir,
+        out_dir,
+        components_dir,
+        used_components,
+        &mut pages,
+    )?;
     Ok(pages)
 }
 
@@ -73,6 +81,7 @@ fn collect_pages(
     pages_root: &Path,
     out_dir: &Path,
     components_dir: &Path,
+    used_components: &mut HashSet<String>,
     pages: &mut Vec<PageDef>,
 ) -> Result<()> {
     for entry in
@@ -81,9 +90,22 @@ fn collect_pages(
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() {
-            collect_pages(&path, pages_root, out_dir, components_dir, pages)?;
+            collect_pages(
+                &path,
+                pages_root,
+                out_dir,
+                components_dir,
+                used_components,
+                pages,
+            )?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("html") {
-            let page = parse_and_expand_page(&path, pages_root, out_dir, components_dir)?;
+            let page = parse_and_expand_page(
+                &path,
+                pages_root,
+                out_dir,
+                components_dir,
+                used_components,
+            )?;
             pages.push(page);
         }
     }
@@ -96,6 +118,7 @@ fn parse_and_expand_page(
     pages_root: &Path,
     out_dir: &Path,
     components_dir: &Path,
+    used_components: &mut HashSet<String>,
 ) -> Result<PageDef> {
     let src = fs::read_to_string(source_path)
         .with_context(|| format!("Failed to read page {}", source_path.display()))?;
@@ -108,19 +131,20 @@ fn parse_and_expand_page(
         // Fall back to deriving route from the file path relative to pages root
         derive_route(source_path, pages_root)
     });
-    let layout = parse_attr(&attrs_str, "layout");
+    let layout = parse_attr(&attrs_str, "layout").filter(|value| !value.trim().is_empty());
 
     // ── 3. Extract <script type="tinyfx"> ────────────────────────────
     let (script, body_without_script) = extract_tinyfx_script(&inner, source_path);
 
+    warn_missing_components(&body_without_script, source_path, components_dir);
+
     // ── 4. Expand <component> tags in body ───────────────────────────
-    let mut _used: HashSet<String> = HashSet::new();
-    let expanded_body = component::resolve_all(&body_without_script, components_dir, &mut _used)
+    let expanded_body = component::resolve_all(&body_without_script, components_dir, used_components)
         .with_context(|| format!("Component expansion failed for {}", source_path.display()))?;
 
     // ── 5. Optionally wrap in layout ─────────────────────────────────
     let final_body = if let Some(ref layout_name) = layout {
-        wrap_in_layout(&expanded_body, layout_name, components_dir)?
+        wrap_in_layout(&expanded_body, layout_name, components_dir, used_components)?
     } else {
         expanded_body
     };
@@ -132,7 +156,7 @@ fn parse_and_expand_page(
         .unwrap_or("page")
         .to_string();
 
-    let out_path = derive_out_path(&route, &name, out_dir);
+    let out_path = derive_out_path(source_path, pages_root, out_dir);
 
     Ok(PageDef {
         name,
@@ -236,13 +260,17 @@ fn extract_tinyfx_script(inner: &str, path: &Path) -> (Option<String>, String) {
 
 /// Wrap a page body inside a layout component by constructing a synthetic
 /// `<component>` tag and running the expansion pipeline on it.
-fn wrap_in_layout(body: &str, layout_name: &str, components_dir: &Path) -> Result<String> {
+fn wrap_in_layout(
+    body: &str,
+    layout_name: &str,
+    components_dir: &Path,
+    used_components: &mut HashSet<String>,
+) -> Result<String> {
     let wrapped = format!(
         "<component name=\"{}\">{}</component>",
         layout_name, body
     );
-    let mut _used = HashSet::new();
-    component::resolve_all(&wrapped, components_dir, &mut _used)
+    component::resolve_all(&wrapped, components_dir, used_components)
         .with_context(|| format!("Failed to expand layout component '{}'", layout_name))
 }
 
@@ -250,28 +278,50 @@ fn wrap_in_layout(body: &str, layout_name: &str, components_dir: &Path) -> Resul
 /// `/`         → dist/index.html
 /// `/blog`     → dist/blog/index.html
 /// `/blog/:slug` → dist/blog/index.html  (params resolved at runtime)
-fn derive_out_path(route: &str, name: &str, out_dir: &Path) -> PathBuf {
-    if route == "/" {
-        // Root page — do not overwrite the main index.html; uses its own file
-        // only when you have an explicit `src/pages/index.html`.
+fn derive_out_path(source_path: &Path, pages_root: &Path, out_dir: &Path) -> PathBuf {
+    let relative = source_path.strip_prefix(pages_root).unwrap_or(source_path);
+    let without_ext = relative.with_extension("");
+
+    let parts: Vec<_> = without_ext
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+
+    if parts.is_empty() || (parts.len() == 1 && parts[0] == "index") {
         return out_dir.join("index.html");
     }
 
-    // Strip leading /, split segments, drop :param segments for the static path
-    let segments: Vec<&str> = route
-        .trim_start_matches('/')
-        .split('/')
-        .filter(|s| !s.starts_with(':'))
-        .collect();
-
-    if segments.is_empty() {
-        out_dir.join(name).join("index.html")
-    } else {
-        let mut path = out_dir.to_path_buf();
-        for seg in &segments {
+    let mut path = out_dir.to_path_buf();
+    for seg in &parts {
+        if seg != "index" {
             path = path.join(seg);
         }
-        path.join("index.html")
+    }
+
+    path.join("index.html")
+}
+
+fn warn_missing_components(html: &str, source_path: &Path, components_dir: &Path) {
+    let component_tag_re = Regex::new(r#"<([A-Z][A-Za-z0-9]*)\b"#).unwrap();
+
+    for cap in component_tag_re.captures_iter(html) {
+        let Some(name_match) = cap.get(1) else {
+            continue;
+        };
+
+        let component_name = name_match.as_str();
+        let expected = components_dir
+            .join(component_name)
+            .join(format!("{}.html", component_name));
+
+        if !expected.exists() {
+            eprintln!(
+                "  warning: {} references missing component <{}> (expected {})",
+                source_path.display(),
+                component_name,
+                expected.display()
+            );
+        }
     }
 }
 
