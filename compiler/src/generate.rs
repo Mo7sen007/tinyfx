@@ -10,7 +10,8 @@ static GENERATORS: Dir = include_dir!("$CARGO_MANIFEST_DIR/../examples/generator
 #[derive(Debug, Subcommand)]
 pub enum Gen {
     /// Generate a component
-    C {
+    #[command(name = "component", visible_alias = "c")]
+    Component {
         /// Component name
         name: String,
         /// Overwrite existing files
@@ -18,7 +19,8 @@ pub enum Gen {
         force: bool,
     },
     /// Generate a service
-    S {
+    #[command(name = "service", visible_alias = "s")]
+    Service {
         /// Service name
         name: String,
         /// Overwrite existing files
@@ -26,7 +28,8 @@ pub enum Gen {
         force: bool,
     },
     /// Generate an interface
-    I {
+    #[command(name = "interface", visible_alias = "i")]
+    Interface {
         /// Interface name
         name: String,
         /// Overwrite existing files
@@ -34,7 +37,8 @@ pub enum Gen {
         force: bool,
     },
     /// Generate a page
-    P {
+    #[command(name = "page", visible_alias = "p")]
+    Page {
         /// Page name
         name: String,
         /// Overwrite existing files
@@ -45,10 +49,10 @@ pub enum Gen {
 
 pub fn run_generate(cmd: &Gen) -> Result<()> {
     match cmd {
-        Gen::C { name, force } => gen_component(name, *force),
-        Gen::S { name, force } => gen_service(name, *force),
-        Gen::I { name, force } => gen_interface(name, *force),
-        Gen::P { name, force } => gen_page(name, *force),
+        Gen::Component { name, force } => gen_component(name, *force),
+        Gen::Service { name, force } => gen_service(name, *force),
+        Gen::Interface { name, force } => gen_interface(name, *force),
+        Gen::Page { name, force } => gen_page(name, *force),
     }
 }
 
@@ -71,14 +75,14 @@ fn gen_component(name: &str, force: bool) -> Result<()> {
 }
 
 fn gen_service(name: &str, force: bool) -> Result<()> {
-    let names = NameSet::new(name)?;
+    let names = ServiceNameSet::new(name)?;
     let base = project_root()?;
-    let dir = base.join("src").join("lib");
-    let ts = render_template("service/Service.ts", &names)?;
-    let ts_path = dir.join(format!("{}.service.ts", names.kebab));
+    let dir = base.join("src").join("lib").join("services");
+    let ts = read_template("service/Service.ts")?.replace("{{Name}}", &names.class_name);
+    let ts_path = dir.join(format!("{}.service.ts", names.file_stem));
 
     write_file(&ts_path, &ts, force)?;
-    println!("Generated service: {}", names.pascal);
+    println!("Generated service: {}", names.class_name);
     Ok(())
 }
 
@@ -169,6 +173,11 @@ struct NameSet {
     kebab: String,
 }
 
+struct ServiceNameSet {
+    class_name: String,
+    file_stem: String,
+}
+
 impl NameSet {
     fn new(input: &str) -> Result<Self> {
         let input = input.trim();
@@ -202,6 +211,31 @@ impl NameSet {
             kebab,
         })
     }
+}
+
+impl ServiceNameSet {
+    fn new(input: &str) -> Result<Self> {
+        let names = NameSet::new(input)?;
+        let class_name = if names.pascal.ends_with("Service") {
+            names.pascal.clone()
+        } else {
+            format!("{}Service", names.pascal)
+        };
+
+        let file_stem = strip_trailing_segment(&names.kebab, "service");
+
+        Ok(Self {
+            class_name,
+            file_stem,
+        })
+    }
+}
+
+fn strip_trailing_segment(value: &str, segment: &str) -> String {
+    value
+        .strip_suffix(&format!("-{}", segment))
+        .unwrap_or(value)
+        .to_string()
 }
 
 fn split_words(input: &str) -> Vec<String> {

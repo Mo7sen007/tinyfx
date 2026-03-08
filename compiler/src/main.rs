@@ -47,7 +47,8 @@ enum Command {
         assets_dir: Option<PathBuf>,
     },
     /// Generate code (components, services, interfaces, pages)
-    G {
+    #[command(name = "generate", visible_alias = "g")]
+    Generate {
         #[command(subcommand)]
         generator: generate::Gen,
     },
@@ -78,7 +79,7 @@ fn main() -> Result<()> {
             }
             build::run_build(&cfg)?;
         }
-        Command::G { generator } => {
+        Command::Generate { generator } => {
             generate::run_generate(&generator)?;
         }
 

@@ -80,16 +80,21 @@ styles     = "src/styles"
     print_result(&format!("{}/package.json", name), w);
 
     // ── tsconfig.json ────────────────────────────────────────────
-    let tsconfig = r#"{
-  "compilerOptions": {
-    "target": "ES2015",
-    "lib": ["ES2015", "DOM"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "strict": true,
-    "outDir": "./dist"
-  },
-  "include": ["src/**/*.ts"]
+        let tsconfig = r#"{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "strict": true,
+        "baseUrl": ".",
+        "paths": {
+            "@models/*": ["src/lib/models/*"],
+            "@dto/*": ["src/lib/dto/*"],
+            "@state/*": ["src/lib/state/*"],
+            "@services/*": ["src/lib/services/*"]
+        }
+    },
+    "include": ["src"]
 }
 "#;
     let w = write_file(&base.join("tsconfig.json"), tsconfig, force)?;
@@ -98,10 +103,10 @@ styles     = "src/styles"
     // ── Directories ──────────────────────────────────────────────
     let dirs = [
         "src/components/Button",
-        "src/lib/http",
         "src/lib/dto",
         "src/lib/models",
         "src/lib/state",
+        "src/lib/services",
         "src/styles",
         "src/assets",
         //"assets",
@@ -119,13 +124,10 @@ styles     = "src/styles"
     let template_files = [
         ("index.html", "src/index.html"),
         ("main.ts", "src/main.ts"),
-        //("lib/http/client.ts", "src/lib/http/client.ts"),
-        ("lib/http/index.ts", "src/lib/http/index.ts"),
-        //("lib/dto/user.dto.ts", "src/lib/dto/user.dto.ts"),
-        ("lib/dto/index.ts", "src/lib/dto/index.ts"),
-        //("lib/models/user.model.ts", "src/lib/models/user.model.ts"),
-        ("lib/models/index.ts", "src/lib/models/index.ts"),
+        ("lib/dto/user.dto.ts", "src/lib/dto/user.dto.ts"),
+        ("lib/models/user.model.ts", "src/lib/models/user.model.ts"),
         ("lib/state/app.state.ts", "src/lib/state/app.state.ts"),
+        ("lib/services/user.service.ts", "src/lib/services/user.service.ts"),
         (
             "components/Button/Button.html",
             "src/components/Button/Button.html",

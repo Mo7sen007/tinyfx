@@ -228,6 +228,10 @@ import "{}";
         .arg(format!("--outfile={}", out_file.display()))
         .arg("--platform=browser")
         .arg("--format=esm")
+        .arg("--alias:@models=./src/lib/models")
+        .arg("--alias:@dto=./src/lib/dto")
+        .arg("--alias:@state=./src/lib/state")
+        .arg("--alias:@services=./src/lib/services")
         .arg("--minify")
         .status()
         .with_context(|| format!("Failed to run esbuild ({})", esbuild_cmd))?;

@@ -1,12 +1,7 @@
-// {{Name}} service
-//
-// Register in main.ts:
-//   import { {{Name}}Service } from "./lib/{{name}}.service";
-//   container.provide({{Name}}Service, new {{Name}}Service());
-//
-// Inject in components:
-//   const svc = ctx.container.inject({{Name}}Service);
+import { createHttp } from "@tinyfx/runtime";
 
-export class {{Name}}Service {
-  // TODO: add service methods
+const http = createHttp({ baseUrl: "/api" });
+
+export class {{Name}} {
+  // add methods here
 }
