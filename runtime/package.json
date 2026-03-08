@@ -1,6 +1,6 @@
 {
   "name": "@tinyfx/runtime",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "Minimal frontend runtime — signals, DOM helpers, typed HTTP, DTO mapping",
   "type": "module",
   "main": "./dist/index.js",
