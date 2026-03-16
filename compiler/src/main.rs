@@ -1,3 +1,16 @@
+//! # main
+//!
+//! CLI entry point for the TinyFX compiler.
+//!
+//! ## Responsibilities
+//! - Parse command-line arguments
+//! - Dispatch to subcommand modules
+//! - Load config before build and serve commands
+//!
+//! ## What this module does NOT do
+//! - It does not implement build, serve, init, or generate logic
+//! - It does not perform direct project file I/O beyond config loading
+
 mod build;
 mod config;
 mod generate;
@@ -72,7 +85,7 @@ fn main() -> Result<()> {
             phase_one_only,
             assets_dir,
         } => {
-            let mut cfg = load_config(&config_path).unwrap_or_default();
+            let mut cfg = load_config(&config_path)?;
             cfg.phase_one_only = phase_one_only;
             if let Some(dir) = assets_dir {
                 cfg.assets_dir = dir.to_string_lossy().into_owned();
@@ -83,9 +96,8 @@ fn main() -> Result<()> {
             generate::run_generate(&generator)?;
         }
 
-        Command :: Serve { config: config_path } => {
-            
-            let cfg = load_config(&config_path).unwrap_or_default();
+        Command::Serve { config: config_path } => {
+            let cfg = load_config(&config_path)?;
             serve::run_serve(&cfg)?;
         }
     }

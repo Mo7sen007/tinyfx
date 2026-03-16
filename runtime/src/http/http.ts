@@ -4,8 +4,19 @@
 import { HttpConfig, HttpError, HttpParseError, HttpTimeoutError, RequestOptions } from "./data";
 import { buildUrl, sleep } from "./helper";
 
-
-
+/**
+ * Creates a typed HTTP client around `fetch`.
+ *
+ * The client exposes `get`, `post`, `put`, `patch`, `del`, and `delete`
+ * helpers and applies the default configuration to every request.
+ *
+ * @param config - Default HTTP configuration such as base URL, headers, and retry policy
+ * @returns An object containing typed request methods
+ *
+ * @example
+ * const http = createHttp({ baseUrl: "/api", timeout: 5000 });
+ * const posts = await http.get<{ id: number; title: string }[]>("/posts");
+ */
 export function createHttp(config: HttpConfig = {}) {
   const base = config.baseUrl ?? "";
   const defaultHeaders = config.headers ?? {};

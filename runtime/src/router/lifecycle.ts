@@ -10,6 +10,14 @@ const destroyCallbacks: LifecycleCallback[] = [];
  *
  * - If the document is still loading, the callback runs after DOMContentLoaded.
  * - If the document is already loaded, the callback runs immediately.
+ *
+ * @param fn - The callback to run on mount
+ * @returns Nothing
+ *
+ * @example
+ * onMount(() => {
+ *   console.log("page ready");
+ * });
  */
 export function onMount(fn: LifecycleCallback): void {
   if (document.readyState === "loading") {
@@ -23,6 +31,14 @@ export function onMount(fn: LifecycleCallback): void {
 /**
  * Register a callback to run when the user navigates away from this page.
  * Fires on the browser's `pagehide` event.
+ *
+ * @param fn - The callback to run during page teardown
+ * @returns Nothing
+ *
+ * @example
+ * onDestroy(() => {
+ *   console.log("page leaving");
+ * });
  */
 export function onDestroy(fn: LifecycleCallback): void {
   destroyCallbacks.push(fn);
@@ -31,6 +47,11 @@ export function onDestroy(fn: LifecycleCallback): void {
 /**
  * Trigger all registered `onMount` callbacks.
  * Called by `initRouter` after matching the current route.
+ *
+ * @returns Nothing
+ *
+ * @example
+ * flushMount();
  */
 export function flushMount(): void {
   const run = () => mountCallbacks.forEach((fn) => fn());
@@ -45,6 +66,11 @@ export function flushMount(): void {
 /**
  * Wire up registered `onDestroy` callbacks to the `pagehide` event.
  * Called by `initRouter` after matching the current route.
+ *
+ * @returns Nothing
+ *
+ * @example
+ * initLifecycle();
  */
 export function initLifecycle(): void {
   flushMount();

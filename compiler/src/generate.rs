@@ -1,7 +1,21 @@
+//! # generate
+//!
+//! Code generation commands for `tinyfx generate`.
+//!
+//! ## Responsibilities
+//! - Resolve embedded generator templates
+//! - Render names into generated files
+//! - Write generated files into the current TinyFX project
+//!
+//! ## What this module does NOT do
+//! - It does not build the project
+//! - It does not parse runtime HTML
+//! - It does not serve or watch files
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::Subcommand;
 use include_dir::{Dir, include_dir};
 
@@ -19,6 +33,10 @@ impl TemplatePaths {
     const PAGE_HTML: &'static str = "page/Page.html";
     const PAGE_TS: &'static str = "page/Page.ts";
 }
+
+/// Supported `tinyfx generate` subcommands.
+///
+/// Each variant maps to a generator template under `compiler/templates/generate`.
 #[derive(Debug, Subcommand)]
 pub enum Gen {
     /// Generate a component
@@ -82,6 +100,15 @@ pub enum Gen {
     },
 }
 
+/// Dispatch a `tinyfx generate` subcommand.
+///
+/// This resolves the requested generator template, normalizes names, and
+/// writes the generated files into the current TinyFX project.
+///
+/// # Errors
+/// Returns an error when the current directory is not inside a TinyFX project,
+/// when a target file already exists without `--force`, or when a generator
+/// template cannot be read or written.
 pub fn run_generate(cmd: &Gen) -> Result<()> {
     match cmd {
         Gen::Component { name, force, dynamic } => gen_component(name, *force, *dynamic),
@@ -93,13 +120,6 @@ pub fn run_generate(cmd: &Gen) -> Result<()> {
     }
 }
 
-
-/// Generate a component from a template and write it to the appropriate directory.
-/// The `name` parameter is used to create the component class name and file name.
-/// If `force` is false, the function will refuse to overwrite existing files.
-/// If `dynamic` is true, the generated component will include lifecycle hooks and signals.
-
-/// Must be revisited!!! to ensure it correctly handles all edge cases (e.g. existing files, invalid names) and that the generated code is correct and consistent with the rest of the framework.
 fn gen_component(name: &str, force: bool, dynamic: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
@@ -109,7 +129,7 @@ fn gen_component(name: &str, force: bool, dynamic: bool) -> Result<()> {
 
     if component_dir.exists() && !force {
         bail!(
-            "Refusing to overwrite existing component directory: {} (use --force)",
+            "refusing to overwrite existing component directory '{}'\n  → pass --force to replace the generated files",
             component_dir.display()
         );
     }
@@ -117,18 +137,15 @@ fn gen_component(name: &str, force: bool, dynamic: bool) -> Result<()> {
     let html = render_component_template(TemplatePaths::COMPONENT, &names, dynamic)?;
     let html_path = component_dir.join(format!("{}.html", names.pascal));
     files.push((html_path, html));
-    if dynamic{
+    if dynamic {
         let ts = render_template(TemplatePaths::COMPONENT_TS, &names)?;
         let ts_path = component_dir.join(format!("{}.ts", names.pascal));
         files.push((ts_path, ts));
     }
 
-   
-
     for (path, content) in files {
         write_file(&path, &content, force)?;
     }
-    
 
     println!("Generated component: {}", names.pascal);
     Ok(())
@@ -195,7 +212,7 @@ fn gen_page(name: &str, force: bool) -> Result<()> {
 
     if (html_path.exists() || ts_path.exists()) && !force {
         bail!(
-            "Refusing to overwrite existing page files: {} and {} (use --force)",
+            "refusing to overwrite existing page files '{}' and '{}'\n  → pass --force to replace the generated files",
             html_path.display(),
             ts_path.display()
         );
@@ -225,7 +242,9 @@ fn project_root() -> Result<PathBuf> {
         }
 
         let Some(parent) = dir.parent() else {
-            bail!("Not inside a tinyfx project (missing tinyfx.toml)");
+            bail!(
+                "not inside a TinyFX project\n  → run this command from a directory containing tinyfx.toml"
+            );
         };
 
         dir = parent.to_path_buf();
@@ -259,10 +278,10 @@ fn render_component_template(path: &str, names: &NameSet, dynamic: bool) -> Resu
         .replace("{{type}}", if dynamic { "tinyfx-dynamic" } else { "tinyfx-static" }))
 }
 
-fn write_file(path: &Path, content: &str, force: bool) -> Result<bool> {
+fn write_file(path: &Path, content: &str, force: bool) -> Result<()> {
     if path.exists() && !force {
         bail!(
-            "Refusing to overwrite existing file: {} (use --force)",
+            "refusing to overwrite existing file '{}'\n  → pass --force to replace it",
             path.display()
         );
     }
@@ -274,7 +293,7 @@ fn write_file(path: &Path, content: &str, force: bool) -> Result<bool> {
 
     fs::write(path, content)
         .with_context(|| format!("Failed to write file: {}", path.display()))?;
-    Ok(true)
+    Ok(())
 }
 
 struct NameSet {
@@ -292,12 +311,15 @@ impl NameSet {
     fn new(input: &str) -> Result<Self> {
         let input = input.trim();
         if input.is_empty() {
-            bail!("Name cannot be empty");
+            bail!("name cannot be empty\n  → provide a non-empty resource name");
         }
 
         let words = split_words(input);
         if words.is_empty() {
-            bail!("Name is invalid");
+            bail!(
+                "name '{}' is invalid\n  → use letters or numbers in the resource name",
+                input
+            );
         }
 
         let pascal = words.iter().map(|w| capitalize(w)).collect::<String>();

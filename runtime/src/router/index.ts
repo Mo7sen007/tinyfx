@@ -18,6 +18,7 @@ export { navigate, goBack, getParam };
  * navigation links.
  *
  * @param routes - The route map emitted by `tinyfx build`.
+ * @returns Nothing
  *
  * @example
  * // tinyfx.gen.ts (auto-generated — do not edit)

@@ -5,6 +5,9 @@
  * Navigate to the given path.
  * This is a full browser navigation — not a DOM swap.
  *
+ * @param path - The destination pathname or URL
+ * @returns Nothing
+ *
  * @example
  * navigate("/blog/hello-world");
  */
@@ -14,6 +17,11 @@ export function navigate(path: string): void {
 
 /**
  * Go back one step in the browser history.
+ *
+ * @returns Nothing
+ *
+ * @example
+ * goBack();
  */
 export function goBack(): void {
   window.history.go(-1);

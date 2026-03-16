@@ -1,3 +1,17 @@
+//! # init
+//!
+//! Project scaffolding for `tinyfx init`.
+//!
+//! ## Responsibilities
+//! - Create the starter directory structure
+//! - Write template files for a new TinyFX project
+//! - Optionally run `npm install`
+//!
+//! ## What this module does NOT do
+//! - It does not build the project
+//! - It does not generate per-resource code like `tinyfx generate`
+//! - It does not serve the project
+
 use std::fs;
 use std::path::Path;
 use std::process::Command;
@@ -53,7 +67,15 @@ fn write(path: &Path, contents: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn run(name: &str) -> Result<()> {
+/// Create a new TinyFX project in a directory named `name`.
+///
+/// This writes the scaffold templates, creates the starter source tree, and
+/// runs `npm install` inside the new project directory.
+///
+/// # Errors
+/// Returns an error when the target directory already exists, when any
+/// scaffold file cannot be written, or when `npm install` fails.
+pub fn run_init(name: &str, _force: bool) -> Result<()> {
     let base = Path::new(name);
 
     if base.exists() {
@@ -133,8 +155,4 @@ pub fn run(name: &str) -> Result<()> {
     println!();
 
     Ok(())
-}
-
-pub fn run_init(name: &str, _force: bool) -> Result<()> {
-    run(name)
 }

@@ -7,6 +7,9 @@
  * Only the pathname portion of each href is compared (query strings and
  * fragments are ignored).
  *
+ * @param pathname - The pathname to compare each link against
+ * @returns Nothing
+ *
  * @example
  * // In a nav: <a href="/blog">Blog</a>
  * // On the /blog page this element will get data-active="true"

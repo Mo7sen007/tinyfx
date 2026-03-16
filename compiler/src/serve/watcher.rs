@@ -1,20 +1,36 @@
+//! # serve::watcher
+//!
+//! File watcher for the TinyFX development server.
+//!
+//! ## Responsibilities
+//! - Watch the source tree for meaningful changes
+//! - Ignore generated files that would trigger rebuild loops
+//! - Trigger rebuilds and browser reload notifications
+//!
+//! ## What this module does NOT do
+//! - It does not serve HTTP responses
+//! - It does not handle WebSocket connections
+//! - It does not contain build phase logic
+
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::config;
 use crate::build;
+use crate::config;
 use anyhow::Result;
-use notify::{Event, RecursiveMode, Watcher, recommended_watcher};
+use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
-
-
-/// Watch `dir` recursively for any file-system change.
+/// Watch the TinyFX source tree for file-system changes.
 ///
 /// On first change a 100 ms debounce window is opened to coalesce rapid
-/// bursts (e.g. a formatter touching many files at once).  After the burst
-/// settles a `()` is sent on `tx` so that connected WebSocket clients know
-/// to reload.
+/// bursts such as formatters or generator output. After the burst settles,
+/// the current project is rebuilt and a reload signal is broadcast to all
+/// connected WebSocket clients.
+///
+/// # Errors
+/// Returns an error when the watch root cannot be resolved, when the notify
+/// watcher cannot be created, or when a triggered rebuild fails.
 pub async fn watch(config: &config::Config, tx: broadcast::Sender<()>) -> Result<()> {
     let (notify_tx, mut notify_rx) = tokio::sync::mpsc::channel::<()>(32);
 

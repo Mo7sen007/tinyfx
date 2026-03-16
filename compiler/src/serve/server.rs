@@ -1,3 +1,17 @@
+//! # serve::server
+//!
+//! HTTP file server for built TinyFX output.
+//!
+//! ## Responsibilities
+//! - Serve files from the build output directory
+//! - Inject the live-reload client into HTML responses
+//! - Return content types for built assets
+//!
+//! ## What this module does NOT do
+//! - It does not watch the source tree
+//! - It does not broadcast reload events
+//! - It does not run build phases directly
+
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -28,7 +42,12 @@ const LIVE_RELOAD_SCRIPT: &str = r#"<script>
 
 /// Bind an HTTP server on `127.0.0.1:3000` and serve files from `dir`.
 ///
-/// HTML responses have the live-reload script injected just before `</body>`.
+/// HTML responses have the live-reload script injected just before `</body>`
+/// so connected browsers can listen for reload notifications.
+///
+/// # Errors
+/// Returns an error when the TCP listener cannot bind or when accepting a new
+/// connection fails.
 pub async fn run(dir: Arc<PathBuf>) -> Result<()> {
     let addr = "127.0.0.1:3000";
     let listener = TcpListener::bind(addr).await?;
@@ -83,17 +102,25 @@ async fn serve_file(
                 Bytes::from(raw)
             };
 
-            Ok(Response::builder()
-                .status(StatusCode::OK)
-                .header("Content-Type", mime.as_ref())
-                .body(Full::new(body))
-                .unwrap())
+            let mut response = Response::new(Full::new(body));
+            *response.status_mut() = StatusCode::OK;
+            response.headers_mut().insert(
+                hyper::header::CONTENT_TYPE,
+                hyper::header::HeaderValue::from_str(mime.as_ref()).unwrap_or(
+                    hyper::header::HeaderValue::from_static("application/octet-stream"),
+                ),
+            );
+            Ok(response)
         }
 
-        Err(_) => Ok(Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .header("Content-Type", "text/plain")
-            .body(Full::new(Bytes::from("404 Not Found")))
-            .unwrap()),
+        Err(_) => {
+            let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
+            *response.status_mut() = StatusCode::NOT_FOUND;
+            response.headers_mut().insert(
+                hyper::header::CONTENT_TYPE,
+                hyper::header::HeaderValue::from_static("text/plain"),
+            );
+            Ok(response)
+        }
     }
 }
