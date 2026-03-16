@@ -7,6 +7,18 @@ use include_dir::{Dir, include_dir};
 
 static GENERATORS: Dir = include_dir!("$CARGO_MANIFEST_DIR/templates/generate");
 
+struct TemplatePaths;
+
+impl TemplatePaths {
+    const COMPONENT: &'static str = "component/Component.html";
+    const COMPONENT_TS: &'static str = "component/Component.ts";
+    const SERVICE: &'static str = "service/Service.ts";
+    const MODEL: &'static str = "model/Model.ts";
+    const DTO: &'static str = "dto/Dto.ts";
+    const INTERFACE: &'static str = "interface/Interface.ts";
+    const PAGE_HTML: &'static str = "page/Page.html";
+    const PAGE_TS: &'static str = "page/Page.ts";
+}
 #[derive(Debug, Subcommand)]
 pub enum Gen {
     /// Generate a component
@@ -14,6 +26,10 @@ pub enum Gen {
     Component {
         /// Component name
         name: String,
+
+        /// Generate a dynamic (interactive) component with lifecycle hooks and signals
+        #[arg(long, short = 'd', default_value_t = false)]
+        dynamic: bool,
         /// Overwrite existing files
         #[arg(long, default_value_t = false)]
         force: bool,
@@ -68,7 +84,7 @@ pub enum Gen {
 
 pub fn run_generate(cmd: &Gen) -> Result<()> {
     match cmd {
-        Gen::Component { name, force } => gen_component(name, *force),
+        Gen::Component { name, force, dynamic } => gen_component(name, *force, *dynamic),
         Gen::Service { name, force } => gen_service(name, *force),
         Gen::Model { name, force } => gen_model(name, *force),
         Gen::Dto { name, force } => gen_dto(name, *force),
@@ -77,9 +93,18 @@ pub fn run_generate(cmd: &Gen) -> Result<()> {
     }
 }
 
-fn gen_component(name: &str, force: bool) -> Result<()> {
+
+/// Generate a component from a template and write it to the appropriate directory.
+/// The `name` parameter is used to create the component class name and file name.
+/// If `force` is false, the function will refuse to overwrite existing files.
+/// If `dynamic` is true, the generated component will include lifecycle hooks and signals.
+
+/// Must be revisited!!! to ensure it correctly handles all edge cases (e.g. existing files, invalid names) and that the generated code is correct and consistent with the rest of the framework.
+fn gen_component(name: &str, force: bool, dynamic: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
+    let mut files = Vec::new();
+
     let component_dir = base.join("src").join("components").join(&names.pascal);
 
     if component_dir.exists() && !force {
@@ -89,14 +114,21 @@ fn gen_component(name: &str, force: bool) -> Result<()> {
         );
     }
 
-    let html = render_template("component.html", &names)?;
-    let ts = render_template("component.ts", &names)?;
-
+    let html = render_component_template(TemplatePaths::COMPONENT, &names, dynamic)?;
     let html_path = component_dir.join(format!("{}.html", names.pascal));
-    let ts_path = component_dir.join(format!("{}.ts", names.pascal));
+    files.push((html_path, html));
+    if dynamic{
+        let ts = render_template(TemplatePaths::COMPONENT_TS, &names)?;
+        let ts_path = component_dir.join(format!("{}.ts", names.pascal));
+        files.push((ts_path, ts));
+    }
 
-    write_file(&html_path, &html, force)?;
-    write_file(&ts_path, &ts, force)?;
+   
+
+    for (path, content) in files {
+        write_file(&path, &content, force)?;
+    }
+    
 
     println!("Generated component: {}", names.pascal);
     Ok(())
@@ -106,7 +138,7 @@ fn gen_service(name: &str, force: bool) -> Result<()> {
     let names = ServiceNameSet::new(name)?;
     let base = project_root()?;
     let dir = base.join("src").join("lib").join("services");
-    let ts = read_template("service.ts")?.replace("{{Name}}", &names.display_name);
+    let ts = read_template(TemplatePaths::SERVICE)?.replace("{{Name}}", &names.display_name);
     let ts_path = dir.join(format!("{}.service.ts", names.file_stem));
 
     write_file(&ts_path, &ts, force)?;
@@ -118,7 +150,7 @@ fn gen_model(name: &str, force: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
     let dir = base.join("src").join("lib").join("models");
-    let ts = render_template("model.ts", &names)?;
+    let ts = render_template(TemplatePaths::MODEL, &names)?;
     let ts_path = dir.join(format!("{}.model.ts", names.kebab));
 
     write_file(&ts_path, &ts, force)?;
@@ -130,7 +162,7 @@ fn gen_dto(name: &str, force: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
     let dir = base.join("src").join("lib").join("dto");
-    let ts = render_template("dto.ts", &names)?;
+    let ts = render_template(TemplatePaths::DTO, &names)?;
     let ts_path = dir.join(format!("{}.dto.ts", names.kebab));
 
     write_file(&ts_path, &ts, force)?;
@@ -142,7 +174,7 @@ fn gen_interface(name: &str, force: bool) -> Result<()> {
     let names = NameSet::new(name)?;
     let base = project_root()?;
     let dir = base.join("src").join("lib");
-    let ts = render_template("interface/Interface.ts", &names)?;
+    let ts = render_template(TemplatePaths::INTERFACE, &names)?;
     let ts_path = dir.join(format!("{}.interface.ts", names.kebab));
 
     write_file(&ts_path, &ts, force)?;
@@ -155,8 +187,8 @@ fn gen_page(name: &str, force: bool) -> Result<()> {
     let base = project_root()?;
     let pages_dir = base.join("src").join("pages");
     let route = page_route(&names.kebab);
-    let html = render_template("page.html", &names)?.replace("{{route}}", &route);
-    let ts = render_template("page.ts", &names)?;
+    let html = render_template(TemplatePaths::PAGE_HTML, &names)?.replace("{{route}}", &route);
+    let ts = render_template(TemplatePaths::PAGE_TS, &names)?;
 
     let html_path = pages_dir.join(format!("{}.html", names.kebab));
     let ts_path = pages_dir.join(format!("{}.ts", names.kebab));
@@ -216,6 +248,15 @@ fn render_template(path: &str, names: &NameSet) -> Result<String> {
         .replace("{{Name}}", &names.pascal)
         .replace("{{name}}", &names.kebab)
         .replace("{{camelName}}", &names.camel))
+}
+
+fn render_component_template(path: &str, names: &NameSet, dynamic: bool) -> Result<String> {
+    let template = read_template(path)?;
+    Ok(template
+        .replace("{{Name}}", &names.pascal)
+        .replace("{{name}}", &names.kebab)
+        .replace("{{camelName}}", &names.camel)
+        .replace("{{type}}", if dynamic { "tinyfx-dynamic" } else { "tinyfx-static" }))
 }
 
 fn write_file(path: &Path, content: &str, force: bool) -> Result<bool> {

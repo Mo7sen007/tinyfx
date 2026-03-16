@@ -42,4 +42,5 @@ mod renderer;
 //
 // without reaching into `component::renderer::resolve_all`.
 
+pub(crate) use renderer::normalize_component_tags;
 pub use renderer::resolve_all;

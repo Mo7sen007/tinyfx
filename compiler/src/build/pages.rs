@@ -13,14 +13,14 @@
 //   8. Return Vec<PageDef> for the glue generator (route map)
 // ─────────────────────────────────────────────────────────────────────────────
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 
-use super::component;
+use super::{CompiledComponent, expand_component_tags};
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -52,8 +52,7 @@ pub struct PageDef {
 pub fn resolve_pages(
     pages_dir: &Path,
     out_dir: &Path,
-    components_dir: &Path,
-    used_components: &mut HashSet<String>,
+    registry: &HashMap<String, CompiledComponent>,
 ) -> Result<Vec<PageDef>> {
     if !pages_dir.exists() {
         // No pages directory — silently return empty; the router simply won't
@@ -66,8 +65,7 @@ pub fn resolve_pages(
         pages_dir,
         pages_dir,
         out_dir,
-        components_dir,
-        used_components,
+        registry,
         &mut pages,
     )?;
     Ok(pages)
@@ -80,8 +78,7 @@ fn collect_pages(
     dir: &Path,
     pages_root: &Path,
     out_dir: &Path,
-    components_dir: &Path,
-    used_components: &mut HashSet<String>,
+    registry: &HashMap<String, CompiledComponent>,
     pages: &mut Vec<PageDef>,
 ) -> Result<()> {
     for entry in
@@ -94,8 +91,7 @@ fn collect_pages(
                 &path,
                 pages_root,
                 out_dir,
-                components_dir,
-                used_components,
+                registry,
                 pages,
             )?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("html") {
@@ -103,8 +99,7 @@ fn collect_pages(
                 &path,
                 pages_root,
                 out_dir,
-                components_dir,
-                used_components,
+                registry,
             )?;
             pages.push(page);
         }
@@ -117,8 +112,7 @@ fn parse_and_expand_page(
     source_path: &Path,
     pages_root: &Path,
     out_dir: &Path,
-    components_dir: &Path,
-    used_components: &mut HashSet<String>,
+    registry: &HashMap<String, CompiledComponent>,
 ) -> Result<PageDef> {
     let src = fs::read_to_string(source_path)
         .with_context(|| format!("Failed to read page {}", source_path.display()))?;
@@ -136,15 +130,15 @@ fn parse_and_expand_page(
     // ── 3. Extract <script type="tinyfx"> ────────────────────────────
     let (script, body_without_script) = extract_tinyfx_script(&inner, source_path);
 
-    warn_missing_components(&body_without_script, source_path, components_dir);
+    warn_missing_components(&body_without_script, source_path, registry);
 
     // ── 4. Expand <component> tags in body ───────────────────────────
-    let expanded_body = component::resolve_all(&body_without_script, components_dir, used_components)
+    let expanded_body = expand_component_tags(&body_without_script, registry)
         .with_context(|| format!("Component expansion failed for {}", source_path.display()))?;
 
     // ── 5. Optionally wrap in layout ─────────────────────────────────
     let final_body = if let Some(ref layout_name) = layout {
-        wrap_in_layout(&expanded_body, layout_name, components_dir, used_components)?
+        wrap_in_layout(&expanded_body, layout_name, registry)?
     } else {
         expanded_body
     };
@@ -263,14 +257,13 @@ fn extract_tinyfx_script(inner: &str, path: &Path) -> (Option<String>, String) {
 fn wrap_in_layout(
     body: &str,
     layout_name: &str,
-    components_dir: &Path,
-    used_components: &mut HashSet<String>,
+    registry: &HashMap<String, CompiledComponent>,
 ) -> Result<String> {
     let wrapped = format!(
-        "<component name=\"{}\">{}</component>",
-        layout_name, body
+        "<{}>{}</{}>",
+        layout_name, body, layout_name
     );
-    component::resolve_all(&wrapped, components_dir, used_components)
+    expand_component_tags(&wrapped, registry)
         .with_context(|| format!("Failed to expand layout component '{}'", layout_name))
 }
 
@@ -301,7 +294,11 @@ fn derive_out_path(source_path: &Path, pages_root: &Path, out_dir: &Path) -> Pat
     path.join("index.html")
 }
 
-fn warn_missing_components(html: &str, source_path: &Path, components_dir: &Path) {
+fn warn_missing_components(
+    html: &str,
+    source_path: &Path,
+    registry: &HashMap<String, CompiledComponent>,
+) {
     let component_tag_re = Regex::new(r#"<([A-Z][A-Za-z0-9]*)\b"#).unwrap();
 
     for cap in component_tag_re.captures_iter(html) {
@@ -310,29 +307,24 @@ fn warn_missing_components(html: &str, source_path: &Path, components_dir: &Path
         };
 
         let component_name = name_match.as_str();
-        let expected = components_dir
-            .join(component_name)
-            .join(format!("{}.html", component_name));
-
-        if !expected.exists() {
+        if !registry.contains_key(component_name) {
             eprintln!(
-                "  warning: {} references missing component <{}> (expected {})",
+                "  warning: {} references missing component <{}>",
                 source_path.display(),
-                component_name,
-                expected.display()
+                component_name
             );
         }
     }
 }
 
 /// Write a resolved page's HTML to disk, creating directories as needed.
-pub fn write_page(page: &PageDef, boilerplate: &str) -> Result<()> {
+pub fn write_page(page: &PageDef) -> Result<()> {
     // Inject the page body into a standard HTML shell if the body doesn't
     // already have a <!DOCTYPE> / <html> wrapper.
     let html = if page.body.trim_start().starts_with("<!") || page.body.contains("<html") {
         page.body.clone()
     } else {
-        build_html_shell(&page.body, boilerplate)
+        build_html_shell(&page.body)
     };
 
     fs::create_dir_all(page.out_path.parent().unwrap_or(Path::new(".")))
@@ -345,17 +337,7 @@ pub fn write_page(page: &PageDef, boilerplate: &str) -> Result<()> {
 }
 
 /// Build a minimal HTML shell wrapping the page body.
-/// `boilerplate` is the raw text of config.entry_html (re-used as base scaffold).
-fn build_html_shell(body: &str, boilerplate: &str) -> String {
-    // If we have a boilerplate template with a <body>, inject into it.
-    if let Some(body_start) = boilerplate.find("<body>") {
-        if let Some(body_end) = boilerplate.rfind("</body>") {
-            let before = &boilerplate[..body_start + "<body>".len()];
-            let after = &boilerplate[body_end..];
-            return format!("{}\n{}\n{}", before, body, after);
-        }
-    }
-
+fn build_html_shell(body: &str) -> String {
     // Fallback: minimal wrapper
     format!(
         "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\">\

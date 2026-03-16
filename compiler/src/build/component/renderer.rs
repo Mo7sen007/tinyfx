@@ -130,7 +130,7 @@ pub fn resolve_all(
     );
 }
 
-fn normalize_component_tags(input: &str) -> Result<String> {
+pub(crate) fn normalize_component_tags(input: &str) -> Result<String> {
     let self_closing_re =
         Regex::new(r#"<([A-Z][A-Za-z0-9]*)\b([^>]*)/\s*>"#).context("Invalid self-closing component regex")?;
     let open_tag_re =

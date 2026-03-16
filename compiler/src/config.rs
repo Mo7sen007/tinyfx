@@ -34,7 +34,7 @@ pub struct Config {
     pub pages: String,
     ///For Debugging
     #[serde(default)]
-    pub pahse_one_only: bool,
+    pub phase_one_only: bool,
 }
 
 fn default_entry_root() -> String {
@@ -81,7 +81,7 @@ impl Default for Config {
             static_dirs: vec![],
             assets_dir: default_assets_dir(),
             pages: default_pages_dir(),
-            pahse_one_only: false,
+            phase_one_only: false,
         }
     }
 }
