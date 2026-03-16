@@ -16,12 +16,14 @@
 mod component;
 mod dependency_graph;
 mod glue;
+mod pool;
 pub mod pages;
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
@@ -116,11 +118,31 @@ fn phase_2_process_pages(
     component_registry: &ComponentRegistry,
 ) -> Result<Vec<PageDef>> {
     println!("\nPhase 2: Page processing");
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
+
+    let registry = Arc::new(component_registry.clone());
 
     let pages_dir = PathBuf::from(&config.pages);
     let out_dir = PathBuf::from(&config.out_dir);
-    let resolved_pages = pages::resolve_pages(&pages_dir, &out_dir, component_registry)?;
 
+    // Collect page paths without doing full expansion so we can compile in parallel.
+    let page_paths = pages::collect_page_paths(&pages_dir)?;
+
+    let jobs: Vec<_> = page_paths
+        .into_iter()
+        .map(|path| {
+            let registry = Arc::clone(&registry);
+            let pages_root = pages_dir.clone();
+            let out_dir = out_dir.clone();
+            move || -> Result<PageDef> { pages::compile_page(path, pages_root, out_dir, registry) }
+        })
+        .collect();
+
+    let resolved_pages = pool::run_parallel(jobs, num_threads)?;
+
+    // Write out pages and report
     for page in &resolved_pages {
         pages::write_page(page)?;
         println!("  ✔ {} ({})", page.out_path.display(), page.route);

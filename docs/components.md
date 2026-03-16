@@ -4,15 +4,12 @@ Components are the building blocks of TinyFX. Each component consists of an HTML
 
 ## Creating Components
 
-The easiest way to create a component is using the CLI:
+Use the CLI to scaffold components. The canonical command is `tinyfx generate component <Name>`;
+see the CLI Reference for information about available aliases.
 
-```bash
-tinyfx g component Alert
-```
-
-This creates a folder in `src/components/` with:
-- `Alert.html`: The HTML template.
-- `Alert.ts`: The TypeScript logic.
+Scaffolding creates `src/components/<PascalName>/` with:
+- `<PascalName>.html` — the component template
+- `<PascalName>.ts` — optional behavior file (created only when `--dynamic` is passed or when requested)
 
 ## HTML Templates
 
@@ -91,6 +88,23 @@ export function mount(el: HTMLElement, ctx: TinyFxContext) {
   inst.init();
   return inst;
 }
+```
+
+### Dynamic components and `tinyfx-dynamic`
+
+If a component should mount runtime behavior, follow these rules:
+
+- Add the `tinyfx-dynamic` attribute to the component root in the `.html` file.
+- Create a matching `.ts` alongside the `.html` that exports a `mount(el, ctx)` helper.
+- The compiler will warn if a `.ts` exists without `tinyfx-dynamic`, or error if the `.html` has `tinyfx-dynamic` but the `.ts` is missing.
+
+Example dynamic component root:
+
+```html
+<section class="counter" data-component="Counter" tinyfx-dynamic>
+  <h2>Counter</h2>
+  <slot></slot>
+</section>
 ```
 
 ## Styling Components

@@ -47,18 +47,57 @@ pub struct PageDef {
 /// Returns an error when a page cannot be read, when the page root is invalid,
 /// when component expansion fails, or when a requested layout cannot be
 /// resolved through the compiled component registry.
-pub fn resolve_pages(
-    pages_dir: &Path,
-    out_dir: &Path,
-    component_registry: &HashMap<String, CompiledComponent>,
-) -> Result<Vec<PageDef>> {
-    if !pages_dir.exists() {
-        return Ok(Vec::new());
-    }
+// pub fn resolve_pages(
+//     pages_dir: &Path,
+//     out_dir: &Path,
+//     component_registry: &HashMap<String, CompiledComponent>,
+// ) -> Result<Vec<PageDef>> {
+//     if !pages_dir.exists() {
+//         return Ok(Vec::new());
+//     }
 
-    let mut resolved_pages = Vec::new();
-    collect_pages(pages_dir, pages_dir, out_dir, component_registry, &mut resolved_pages)?;
-    Ok(resolved_pages)
+//     let mut resolved_pages = Vec::new();
+//     collect_pages(pages_dir, pages_dir, out_dir, component_registry, &mut resolved_pages)?;
+//     Ok(resolved_pages)
+// }
+
+/// Collect all page file paths under `pages_dir` (recursively).
+pub fn collect_page_paths(pages_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut paths = Vec::new();
+    if !pages_dir.exists() {
+        return Ok(paths);
+    }
+    collect_page_paths_inner(pages_dir, &mut paths)?;
+    Ok(paths)
+}
+
+fn collect_page_paths_inner(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| {
+        format!(
+            "failed to read pages directory '{}'\n  → confirm the path exists and is readable",
+            dir.display()
+        )
+    })? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_page_paths_inner(&path, out)?;
+        } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
+            out.push(path);
+        }
+    }
+    Ok(())
+}
+
+/// Compile a single page into a `PageDef`.
+/// Accepts owned `PathBuf`s and an `Arc` registry so it can be called from threads.
+pub fn compile_page(
+    source_path: PathBuf,
+    pages_root: PathBuf,
+    out_dir: PathBuf,
+    component_registry: std::sync::Arc<HashMap<String, CompiledComponent>>,
+) -> Result<PageDef> {
+    parse_and_expand_page(&source_path, &pages_root, &out_dir, component_registry.as_ref())
 }
 
 /// Write a resolved page to disk, creating parent directories as needed.
@@ -111,35 +150,35 @@ pub fn resolve_page_out_path(source_path: &Path, pages_root: &Path, out_dir: &Pa
     out_path.join("index.html")
 }
 
-fn collect_pages(
-    dir: &Path,
-    pages_root: &Path,
-    out_dir: &Path,
-    component_registry: &HashMap<String, CompiledComponent>,
-    resolved_pages: &mut Vec<PageDef>,
-) -> Result<()> {
-    for entry in fs::read_dir(dir).with_context(|| {
-        format!(
-            "failed to read pages directory '{}'\n  → confirm the path exists and is readable",
-            dir.display()
-        )
-    })? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_pages(&path, pages_root, out_dir, component_registry, resolved_pages)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-            resolved_pages.push(parse_and_expand_page(
-                &path,
-                pages_root,
-                out_dir,
-                component_registry,
-            )?);
-        }
-    }
+// fn collect_pages(
+//     dir: &Path,
+//     pages_root: &Path,
+//     out_dir: &Path,
+//     component_registry: &HashMap<String, CompiledComponent>,
+//     resolved_pages: &mut Vec<PageDef>,
+// ) -> Result<()> {
+//     for entry in fs::read_dir(dir).with_context(|| {
+//         format!(
+//             "failed to read pages directory '{}'\n  → confirm the path exists and is readable",
+//             dir.display()
+//         )
+//     })? {
+//         let entry = entry?;
+//         let path = entry.path();
+//         if path.is_dir() {
+//             collect_pages(&path, pages_root, out_dir, component_registry, resolved_pages)?;
+//         } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
+//             resolved_pages.push(parse_and_expand_page(
+//                 &path,
+//                 pages_root,
+//                 out_dir,
+//                 component_registry,
+//             )?);
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
 fn parse_and_expand_page(
     source_path: &Path,

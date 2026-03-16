@@ -1,16 +1,27 @@
 # Getting Started with TinyFX
 
-This guide will help you set up your first TinyFX project and understand the basic workflow.
+This guide helps you set up a TinyFX project and explains the typical development workflow.
 
 ## Installation
 
-Currently, TinyFX is built from source. You'll need the Rust toolchain installed.
+TinyFX's compiler is a Rust binary. For local development you'll need the Rust toolchain and
+Node.js (for runtime tooling like esbuild). The easiest way to get started is to build the
+compiler locally and use it to scaffold a new project.
 
-1.  Clone the repository and build the compiler:
-    ```bash
-    cargo build --release
-    ```
-2.  Add the `tinyfx` binary to your PATH or use it directly from `target/release/tinyfx`.
+1. Install Rust toolchain (if you don't have it):
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+2. Build the compiler binary from the workspace root:
+
+```bash
+cargo build --manifest-path compiler/Cargo.toml --release
+```
+
+The compiled `tinyfx` binary will be at `compiler/target/release/tinyfx`. You can copy it into
+`$PATH` or invoke it from that location while developing.
 
 ## Creating a New Project
 
@@ -28,7 +39,7 @@ This creates a default project structure:
 - `tinyfx.toml`: Configuration file.
 - `package.json`: TypeScript and build dependencies.
 
-Install the npm dependencies:
+Install the Node dependencies used by the runtime and tooling (esbuild, TypeScript):
 
 ```bash
 npm install
@@ -41,7 +52,7 @@ npm install
 Create a new component using the generator:
 
 ```bash
-tinyfx g component MyButton
+tinyfx generate component MyButton
 ```
 
 This will create `src/components/MyButton/MyButton.html` and `src/components/MyButton/MyButton.ts`.
@@ -89,34 +100,46 @@ In your `src/pages/index.html`, use the component tag directly:
 
 ### 3. Build the Project
 
-Run the build command to expand components and generate the registry:
+Build the project (one-off build):
 
 ```bash
 tinyfx build
 ```
 
-The compiler will:
-1.  Search all files in `src/pages/` for page definitions.
-2.  Expand component tags using templates from `src/components/`.
-3.  Generate `src/tinyfx.gen.ts` which imports `MyButton` and wires it up.
-4.  Output routed HTML files to `dist/`.
+The compiler performs the full build pipeline (component expansion, page processing,
+glue generation, and asset bundling). Important notes:
+
+- Pages are written to `dist/` as routed output. Nested pages map to `dist/<segments>/index.html`.
+- The compiler generates `src/tinyfx.gen.ts` — this file is auto-generated and overwritten on each build.
+- When the project is built, `dist/js/main.js` is produced by the asset pipeline.
 
 ### 4. Run the Development Server
 
-TinyFX has a built-in dev server with **automatic live reload**:
+Development server with live reload
 
 ```bash
 tinyfx serve
 ```
 
-This starts an HTTP server at `http://localhost:3000` and a WebSocket server at `ws://localhost:3001`. Any time a file in `dist/` changes, connected browsers reload automatically — no manual refresh needed.
+`tinyfx serve` performs an initial build, starts an HTTP server on port `3000`, and a WebSocket
+live-reload server on port `3001`. The server watches files and triggers rebuilds; browsers
+connected to the dev server will automatically reload when the compiler writes new output to
+`dist/`.
 
-For a continuous build-and-reload workflow, run the build in watch mode in one terminal and `tinyfx serve` in another:
+If you prefer to manage your own watch/build tooling you can run `tinyfx build` manually or
+use your own bundler/watch pipeline. The canonical dev loop is:
 
 ```bash
-# Terminal 1
-tinyfx build && npm run watch
+# Terminal 1 — optional: run a file watcher or your own bundler
+npm run watch
 
-# Terminal 2
+# Terminal 2 — start the dev server
 tinyfx serve
 ```
+
+Troubleshooting 404s when creating pages
+
+- The server resolves routes to files using the convention `dist/<segments>/index.html`. If you
+  request `/foo`, the server will serve `dist/foo/index.html`. If you see a 404 immediately after
+  creating a page, wait a few moments for the compiler to finish writing files; we also recommend
+  using the built-in `tinyfx serve` which performs an initial build and then rebuilds on changes.

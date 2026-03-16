@@ -81,46 +81,88 @@ async fn serve_file(
     req: Request<Incoming>,
     dir: Arc<PathBuf>,
 ) -> Result<Response<ResponseBody>, Infallible> {
-    let req_path = req.uri().path().trim_start_matches('/');
-    let file_name = if req_path.is_empty() { "index.html" } else { req_path };
-    let full_path = dir.join(file_name);
+    let req_path_raw = req.uri().path();
 
-    match fs::read(&full_path).await {
-        Ok(raw) => {
-            let mime = from_path(&full_path).first_or_octet_stream();
+    // Basic path sanitation: reject attempts at directory traversal.
+    if req_path_raw.contains("..") {
+        let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
+        *response.status_mut() = StatusCode::NOT_FOUND;
+        response.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_static("text/plain"),
+        );
+        return Ok(response);
+    }
 
-            // Inject live-reload snippet into HTML files only.
-            let body = if mime.essence_str() == "text/html" {
-                let mut html = String::from_utf8_lossy(&raw).into_owned();
-                if let Some(pos) = html.rfind("</body>") {
-                    html.insert_str(pos, LIVE_RELOAD_SCRIPT);
+    let rel = req_path_raw.trim_start_matches('/');
+
+    // Resolve candidate file paths in order:
+    // 1) exact file at `dist/<rel>`
+    // 2) if `dist/<rel>` is a directory, try `dist/<rel>/index.html`
+    // 3) if request is empty, serve `dist/index.html`
+    let candidates: Vec<PathBuf> = if rel.is_empty() {
+        vec![dir.join("index.html")]
+    } else {
+        let direct = dir.join(rel);
+        vec![direct.clone(), direct.join("index.html")]
+    };
+
+    // Find the first existing regular file among candidates.
+    let mut found: Option<PathBuf> = None;
+    for candidate in &candidates {
+        if let Ok(meta) = fs::metadata(candidate).await {
+            if meta.is_file() {
+                found = Some(candidate.clone());
+                break;
+            }
+        }
+    }
+
+    if let Some(full_path) = found {
+        match fs::read(&full_path).await {
+            Ok(raw) => {
+                let mime = from_path(&full_path).first_or_octet_stream();
+
+                // Inject live-reload snippet into HTML files only.
+                let body = if mime.essence_str() == "text/html" {
+                    let mut html = String::from_utf8_lossy(&raw).into_owned();
+                    if let Some(pos) = html.rfind("</body>") {
+                        html.insert_str(pos, LIVE_RELOAD_SCRIPT);
+                    } else {
+                        html.push_str(LIVE_RELOAD_SCRIPT);
+                    }
+                    Bytes::from(html.into_bytes())
                 } else {
-                    html.push_str(LIVE_RELOAD_SCRIPT);
-                }
-                Bytes::from(html.into_bytes())
-            } else {
-                Bytes::from(raw)
-            };
+                    Bytes::from(raw)
+                };
 
-            let mut response = Response::new(Full::new(body));
-            *response.status_mut() = StatusCode::OK;
-            response.headers_mut().insert(
-                hyper::header::CONTENT_TYPE,
-                hyper::header::HeaderValue::from_str(mime.as_ref()).unwrap_or(
-                    hyper::header::HeaderValue::from_static("application/octet-stream"),
-                ),
-            );
-            Ok(response)
+                let mut response = Response::new(Full::new(body));
+                *response.status_mut() = StatusCode::OK;
+                response.headers_mut().insert(
+                    hyper::header::CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_str(mime.as_ref()).unwrap_or(
+                        hyper::header::HeaderValue::from_static("application/octet-stream"),
+                    ),
+                );
+                Ok(response)
+            }
+            Err(_) => {
+                let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
+                *response.status_mut() = StatusCode::NOT_FOUND;
+                response.headers_mut().insert(
+                    hyper::header::CONTENT_TYPE,
+                    hyper::header::HeaderValue::from_static("text/plain"),
+                );
+                Ok(response)
+            }
         }
-
-        Err(_) => {
-            let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
-            *response.status_mut() = StatusCode::NOT_FOUND;
-            response.headers_mut().insert(
-                hyper::header::CONTENT_TYPE,
-                hyper::header::HeaderValue::from_static("text/plain"),
-            );
-            Ok(response)
-        }
+    } else {
+        let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
+        *response.status_mut() = StatusCode::NOT_FOUND;
+        response.headers_mut().insert(
+            hyper::header::CONTENT_TYPE,
+            hyper::header::HeaderValue::from_static("text/plain"),
+        );
+        Ok(response)
     }
 }

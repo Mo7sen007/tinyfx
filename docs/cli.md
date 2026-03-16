@@ -27,74 +27,61 @@ styles     = "src/styles"
 ## Commands
 
 ### `init <name>`
-Initializes a new TinyFX project in the specified directory. It creates the folder structure, default configuration, and basic boilerplate files.
+Create a new TinyFX project in the specified directory. This scaffolds the folder structure, default config, and example files.
 
 ```bash
 tinyfx init my-app
 ```
 
 ### `build`
-Compiles the project. It performs the following steps:
-1.  **Component Discovery**: Scans `src/components/` recursively for component templates.
-2.  **Property Interpolation**: Replaces `{{ prop }}` placeholders with attribute values.
-3.  **Slot Injection**: Places children of component tags into `<slot></slot>` locations.
-4.  **Page Processing**: Scans all `.html` pages in `src/pages/`, expands components, and writes routed output into `dist/`.
-5.  **Asset Pipeline**: Bundles `src/main.ts` to `dist/js/main.js`, copies styles/assets.
-6.  **Glue Generation**: Generates `src/tinyfx.gen.ts` route/component wiring from discovered pages and components.
+Run the full compiler pipeline (component expansion, page resolution, glue generation, and asset bundling). Output is written to the `out_dir` defined in `tinyfx.toml` (defaults to `dist/`).
 
 ```bash
 tinyfx build
 ```
 
-### `g <type> <name>`
-Generates new files based on templates.
+Notes:
+- Pages are written to `dist/<segments>/index.html` for nested routes.
+- `src/tinyfx.gen.ts` is auto-generated and overwritten on each build.
 
-- **`g component <name>`**: Creates a new component folder with HTML and TS files.
-- **`g service <name>`**: Creates `src/lib/services/<name>.service.ts` service factory.
-- **`g model <name>`**: Creates `src/lib/models/<name>.model.ts`.
-- **`g dto <name>`**: Creates `src/lib/dto/<name>.dto.ts`.
-- **`g page <name>`**: Creates `src/pages/<name>.html` and `src/pages/<name>.ts`.
+### `generate` (alias: `g`)
+Generate project artifacts from templates. The long-form command is `tinyfx generate <type> <Name>`; a shorthand `g` alias is also supported in the CLI.
+
+- `tinyfx generate component <Name>` — creates `src/components/<PascalName>/<PascalName>.html` and, with `--dynamic`, a `.ts` file.
+- `tinyfx generate page <name>` — creates `src/pages/<kebab-name>.html` and optional `.ts` file. `index` maps to `/`.
+- `tinyfx generate service <Name>` — creates `src/lib/services/<kebab-name>.service.ts`.
+- `tinyfx generate model <Name>` — creates `src/lib/models/<kebab-name>.model.ts`.
+- `tinyfx generate dto <Name>` — creates `src/lib/dto/<kebab-name>.dto.ts`.
+
+Examples:
 
 ```bash
-tinyfx g component UserProfile
-tinyfx g service AuthService
+tinyfx generate component UserProfile
+tinyfx generate page about
 ```
 
 ### `serve`
-
-Starts a local development server with **live reload**.
+Start the integrated development server with live reload.
 
 ```bash
 tinyfx serve
 ```
+
+Behavior:
+- Binds an HTTP server on `127.0.0.1:3000` to serve files from the configured `out_dir`.
+- Starts a WebSocket server on `127.0.0.1:3001` that notifies connected browsers to reload when builds complete.
+- Performs an initial build before serving and triggers rebuilds when source files change.
+
+Ports:
 
 | Port | Purpose |
 |------|---------|
-| `3000` | HTTP file server (static assets) |
-| `3001` | WebSocket endpoint for live reload |
+| 3000 | HTTP file server (static assets) |
+| 3001 | WebSocket endpoint for live reload |
 
-How it works:
-1. An HTTP server on port `3000` serves static files from `out_dir` in `tinyfx.toml`.
-2. A WebSocket server on port `3001` is started for browser notifications.
-3. TinyFX watches `src/` recursively for source changes.
-4. A small inline `<script>` is injected into every HTML response that connects to the WebSocket and calls `location.reload()` when a `"reload"` message is received.
-5. When a file change is detected (with a 100 ms debounce to coalesce bursts), all connected browsers reload automatically.
+Build-only mode (phase 1)
 
-Typical development loop:
-
-```bash
-# Terminal 1 — rebuild on source change (use your bundler's watch mode)
-tinyfx build && npm run watch
-
-# Terminal 2 — serve and live-reload
-tinyfx serve
-```
-
----
-
-## Build Phases
-
-TinyFX can sometimes be run in "Phase 1 only" mode (mostly for internal use) which just expands components without doing a full build.
+If you need to run only the component expansion phase (internal/diagnostics), use:
 
 ```bash
 tinyfx build --phase-one-only
