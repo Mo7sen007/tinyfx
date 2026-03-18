@@ -6,8 +6,8 @@
 //! - Emit `__mount_ComponentName` functions that instantiate components
 //!   and wire their directive sites to live instance signals
 //! - Handle components with no directives (minimal wrapper)
-//! - Handle components with <each> directives
-//! - Handle components with <if> directives
+//! - Handle components with `<each>` directives
+//! - Handle components with `<if>` directives
 //! - Handle components with both
 //!
 //! ## What this module does NOT do
@@ -25,9 +25,9 @@ use super::each::EachSite;
 pub struct ComponentWrapperSpec {
     /// PascalCase component name — e.g. "Chat"
     pub name: String,
-    /// <each> sites found in this component's HTML, in source order
+    /// `<each>` sites found in this component's HTML, in source order
     pub each_sites: Vec<EachSite>,
-    /// <if> sites found in this component's HTML, in source order
+    /// `<if>` sites found in this component's HTML, in source order
     pub if_sites: Vec<IfSite>,
 }
 

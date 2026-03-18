@@ -1,447 +1,564 @@
 # TinyFX
 
 ## What TinyFX Is
+TinyFX is a hybrid web framework with a Rust CLI compiler and a TypeScript runtime. It targets Go developers and developers who want structured TypeScript tooling with server-rendered HTML output, direct DOM control, and low client-side overhead.
 
-TinyFX is a hybrid web framework made of a Rust CLI compiler and a small TypeScript runtime. It is aimed at developers who like server-rendered HTML, direct DOM access, and explicit code paths, especially Go developers and developers who are tired of the amount of machinery that usually comes with frontend frameworks.
-
-## Why It Exists
-
-TinyFX exists for cases where the browser should enhance HTML instead of owning the whole UI. The compiler expands components and writes real HTML files at build time, and the runtime only handles the pieces that need browser behavior such as signals, DOM bindings, route params, and HTTP calls. The tradeoff is that TinyFX is not a fit for applications that need a fully client-side router, virtual DOM diffing, or a large ecosystem of framework-level abstractions. Today it is best suited to multi-page applications, server-rendered apps, and teams that want most complexity to stay visible in HTML, TypeScript, and the filesystem.
+The compiler performs component expansion, page processing, directive transformation, glue generation, and bundling orchestration. The runtime provides the browser primitives that remain necessary after compile time.
 
 ## How It Works
+TinyFX follows a compile-first architecture.
 
-TinyFX has two parts. The Rust CLI scans your project, expands components, resolves pages into output files, generates a small glue file, and runs the asset pipeline. The TypeScript runtime in `@tinyfx/runtime` provides signals, effects, DOM helpers, route param helpers, page lifecycle hooks, navigation helpers, and a typed HTTP client.
+```mermaid
+flowchart LR
+  A[src/components + src/pages] --> B[Phase 0 Dependency Graph]
+  B --> C[Phase 1 Component Compilation]
+  C --> D[Phase 2 Page Processing]
+  D --> E[Phase 3 tinyfx.gen.ts Generation]
+  E --> F[Phase 4 Asset Pipeline]
+  F --> G[dist/ HTML + JS + CSS + assets]
+```
 
-When you run `tinyfx build`, Phase 0 scans `src/components/` and `src/pages/` to build a dependency graph so components can be compiled in a safe order and circular references fail early. Phase 1 reads component templates, expands nested component usage, and decides which components are static and which are dynamic. Phase 2 reads every page in `src/pages/`, parses the `<page>` root element, expands components in the page body, optionally wraps the page in a layout component, and writes real HTML files into `dist/`. Phase 3 generates `src/tinyfx.gen.ts`, which imports dynamic component modules and page modules and wires them to the runtime router. Phase 4 bundles `src/main.ts` and the generated glue file with esbuild, then copies styles and assets into `dist/`.
+The build phases in `compiler/src/build/mod.rs`:
 
-Static components are just HTML templates. They are expanded at build time and add no runtime behavior of their own. Dynamic components need two things: a `.ts` file and the `tinyfx-dynamic` marker in the component HTML. The compiler uses that combination to mount behavior on the generated DOM node. Pages live in `src/pages/` as `.html` files, and an optional sibling `.ts` file can export `init(el, ctx)` to run page-specific code.
+1. Phase 0: Build dependency graph from `src/components/**/*.html` and `src/pages/**/*.html`.
+2. Phase 1: Compile components in dependency order, expand nested components, detect dynamic components, parse component-level `<each>` and `<if>` sites.
+3. Phase 2: Compile pages, expand components, process page-level directives, and write resolved HTML to `dist/`.
+4. Phase 3: Generate `src/tinyfx.gen.ts` with imports, directive helpers, component wrappers, registry, and router bootstrap.
+5. Phase 4: Bundle `src/main.ts` and generated glue with esbuild, then copy styles and assets.
+
+Runtime exports in `runtime/src/index.ts`:
+- `signal`, `effect`
+- `bindText`, `bindAttr`, `bindClass`
+- `createHttp`
+- `initRouter`, `getParam`, `navigate`, `goBack`
+- `onMount`, `onDestroy`
+- `TinyFxContext`
+- `RouteMap`, `RouteMeta`
+- `registerInstance`, `destroyNode`
 
 ## Getting Started
-
-```sh
+```bash
 cargo install --path compiler
 tinyfx init my-app
 cd my-app
 tinyfx serve
 ```
 
-`tinyfx init` creates the project, writes the starter files, and runs `npm install` for you. `tinyfx serve` performs an initial build, starts an HTTP server on `http://127.0.0.1:3000`, starts a live-reload WebSocket server on port `3001`, watches the project source tree, and rebuilds when files change.
-
-In the browser you will see a real HTML page rendered from `src/pages/index.html` with the heading “Welcome to TinyFX”, a short message telling you to edit the page, and the sample `Button` component expanded into plain HTML. In your editor you will see a small project with `src/pages/`, `src/components/`, `src/lib/`, `src/main.ts`, `tinyfx.toml`, and TypeScript config files. The compiler also generates `src/tinyfx.gen.ts` during builds; that file is owned by the compiler and should not be edited by hand.
-
-## Project Structure
+## Scaffolded Project Structure
+Current scaffold output from `tinyfx init`:
 
 ```text
 my-app/
-├── AGENTS.md                        # Local agent instructions scaffolded into each new app
-├── package.json                     # npm scripts and runtime/build dependencies
-├── tinyfx.toml                      # TinyFX compiler configuration
-├── tsconfig.app.json                # App-level TypeScript config with src/* path aliases
-├── tsconfig.json                    # Template TypeScript config used by generated code patterns
+├── AGENTS.md
+├── package.json
+├── tinyfx.toml
+├── tsconfig.json
 └── src/
-    ├── main.ts                      # App-level entry file bundled into dist/js/main.js
+    ├── main.ts
     ├── pages/
-    │   └── index.html               # Home page with a <page> root element
+    │   ├── index.html
+    │   └── index.ts
     ├── components/
-    │   └── Button/
-    │       ├── Button.html          # Sample component template used by the starter page
-    │       └── Button.ts            # Sample behavior file; it will not mount until Button.html is marked tinyfx-dynamic
+    │   ├── FeatureCard/
+    │   │   └── FeatureCard.html
+    │   └── ThemeToggle/
+    │       ├── ThemeToggle.html
+    │       └── ThemeToggle.ts
     ├── lib/
-    │   ├── dto/                     # Raw API response types
-    │   ├── models/                  # Frontend model classes built from DTOs
-    │   ├── services/                # Factory-style business logic and HTTP wrappers
-    │   └── state/                   # Shared signals and other client state
+    │   ├── dto/
+    │   ├── models/
+    │   ├── services/
+    │   └── state/
+    │       └── theme.state.ts
     └── styles/
-        └── main.css                 # Styles copied to dist/css during builds
+        └── main.css
 ```
 
 ## Core Concepts
 
-### Pages (`src/pages/`)
-
-Each page is an HTML file with a `<page>` root element. The `route` attribute is optional because TinyFX can derive a route from the filename, and the `layout` attribute is optional because the page body can be wrapped in a component. If a sibling `.ts` file exists, the generated glue imports it and calls its `init()` function for the matching route.
+### Pages
+Pages live in `src/pages/` and must use a `<page>` root.
 
 ```html
-<!-- src/pages/blog-post.html -->
-<page route="/blog/:slug" layout="MainLayout">
-  <main class="blog-post-page" data-page="BlogPost">
-    <h1>Blog post</h1>
-    <p class="slug"></p>
+<!-- src/pages/about.html -->
+<page route="/about" layout="">
+  <main class="about-page">
+    <h1>About</h1>
   </main>
 </page>
 ```
 
 ```ts
-// src/pages/blog-post.ts
-import { getParam, onMount } from "@tinyfx/runtime";
+// src/pages/about.ts
+import { onMount } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
 export function init(el: HTMLElement, ctx: TinyFxContext): void {
   onMount(() => {
-    const slugEl = el.querySelector(".slug");
-    if (slugEl) {
-      slugEl.textContent = `slug = ${getParam("slug") ?? "missing"}`;
-    }
-    void ctx;
+    console.log("about mounted", el, ctx.params);
   });
 }
 ```
 
 ### Static Components
+Static is the default behavior. The compiler expands static components at build time into plain HTML.
 
-Static components are HTML-only templates. TinyFX expands them at build time, replaces `{{token}}` placeholders from attributes, and injects children into `<slot></slot>`. There is no runtime mount step unless you intentionally make the component dynamic.
-
-```html
-<!-- src/components/Badge/Badge.html -->
-<span class="badge badge-{{tone}}">
-  <slot></slot>
-</span>
-```
+Note: current `tinyfx generate component <Name>` template still emits a `tinyfx-static` marker for non-dynamic generated components. The compiler does not require that marker to treat a component as static.
 
 ```html
-<!-- src/pages/index.html -->
-<page route="/">
-  <main>
-    <Badge tone="success">Saved</Badge>
-  </main>
-</page>
+<!-- src/components/FeatureCard/FeatureCard.html -->
+<div class="feature-card">
+  <div class="feature-icon">
+    <i class="{{icon}}"></i>
+  </div>
+  <h3 class="feature-title">{{title}}</h3>
+  <p class="feature-description">{{description}}</p>
+</div>
 ```
 
 ### Dynamic Components
-
-Dynamic components are the components TinyFX mounts in the browser. The convention is to put `tinyfx-dynamic` on the root element of the component HTML and to create a same-name `.ts` file that exports `mount(el, ctx)`. The current compiler requires both. A `.ts` file by itself is not enough.
+Dynamic components opt in with `tinyfx-dynamic` and a sibling `.ts` file.
 
 ```html
-<!-- src/components/Counter/Counter.html -->
-<section class="counter" tinyfx-dynamic>
-  <button class="decrement">-</button>
-  <span class="value">0</span>
-  <button class="increment">+</button>
-</section>
+<!-- src/components/ThemeToggle/ThemeToggle.html -->
+<button class="theme-toggle" tinyfx-dynamic aria-label="Toggle theme">
+  <i class="fa-solid fa-moon"></i>
+</button>
 ```
 
 ```ts
-// src/components/Counter/Counter.ts
-import { bindText, signal } from "@tinyfx/runtime";
+// src/components/ThemeToggle/ThemeToggle.ts
+import { effect } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
-export class Counter {
-  public count = signal(0);
-
+export class ThemeToggle {
   constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
 
   init(): void {
-    const value = this.el.querySelector(".value") as HTMLElement;
-    const inc = this.el.querySelector(".increment") as HTMLButtonElement;
-    const dec = this.el.querySelector(".decrement") as HTMLButtonElement;
+    effect(() => {
+      console.log("theme effect", this.el.dataset.theme);
+    });
 
-    bindText(value, () => this.count());
-    inc.addEventListener("click", () => this.count.set(this.count() + 1));
-    dec.addEventListener("click", () => this.count.set(this.count() - 1));
-    void this.ctx;
+    this.el.addEventListener("click", () => {
+      console.log("toggle");
+    });
   }
 
-  destroy?(): void {}
+  destroy(): void {}
 }
 
 export function mount(el: HTMLElement, ctx: TinyFxContext) {
-  const inst = new Counter(el, ctx);
+  const inst = new ThemeToggle(el, ctx);
   inst.init();
   return inst;
 }
 ```
 
+Compiler enforcement:
+- `tinyfx-dynamic` present and no sibling `.ts`: build error.
+- sibling `.ts` present and no `tinyfx-dynamic`: build warning.
+
 ### Signals and Reactivity
-
-Signals are TinyFX’s smallest reactive unit. A signal is a function you call to read the current value, and it exposes `.set()` to update the value. `effect()` tracks signal reads while it runs and re-runs when those values change. The DOM helpers are thin wrappers around `effect()`.
-
-```ts
-// src/components/SearchStatus/SearchStatus.ts
-import { bindText, effect, signal } from "@tinyfx/runtime";
-import type { TinyFxContext } from "@tinyfx/runtime";
-
-export class SearchStatus {
-  public query = signal("");
-  public resultCount = signal(0);
-
-  constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
-
-  init(): void {
-    const output = this.el.querySelector(".summary") as HTMLElement;
-    bindText(output, () => `${this.resultCount()} results for ${this.query()}`);
-
-    effect(() => {
-      console.log("search state changed", this.query(), this.resultCount());
-    });
-
-    void this.ctx;
-  }
-}
-```
-
-### Component Communication
-
-TinyFX does not have a framework event bus. Components communicate the normal web-platform ways: shared signals in `src/lib/state/`, attributes passed through HTML, and custom DOM events.
+Signals are explicit callable state holders. `effect()` subscribes to signal reads.
 
 ```ts
-// src/lib/state/cart.state.ts
+// src/lib/state/chat.state.ts
 import { signal } from "@tinyfx/runtime";
 
-export const cartCount = signal(0);
+export const messages = signal<{ id: number; content: string }[]>([]);
 ```
+
+### `<each>` Directive
 
 ```html
-<!-- src/components/AddToCart/AddToCart.html -->
-<button class="add-to-cart" tinyfx-dynamic data-sku="{{sku}}">
-  <slot></slot>
-</button>
+<!-- src/components/Chat/Chat.html -->
+<each of="posts()" as="post" key="id" class="feed">
+  <PostCard title="{{post.title}}" />
+</each>
 ```
 
-```ts
-// src/components/AddToCart/AddToCart.ts
-import { cartCount } from "@state/cart.state";
-import type { TinyFxContext } from "@tinyfx/runtime";
+Supported `of` forms:
+- signal call: `posts()`
+- plain array expression: `posts`
+- integer count: `10`
+- range: `1..5`
 
-export function mount(el: HTMLElement, ctx: TinyFxContext) {
-  el.addEventListener("click", () => {
-    cartCount.set(cartCount() + 1);
-    el.dispatchEvent(new CustomEvent("cart:added", {
-      bubbles: true,
-      detail: { sku: el.getAttribute("data-sku") },
-    }));
-    void ctx;
-  });
+Compiler behavior:
+- Replaces the directive site with a container: `<div data-each="SITE_ID" ...></div>`.
+- Preserves non-control attributes from `<each>` on the generated wrapper.
+- Generates `__create_*`, `__update_*`, and `__reconcile_*` functions.
+- Wires reconciliation via `effect()` for signal sources.
+
+Generated updates use targeted DOM operations rather than subtree replacement:
+
+```ts
+// src/tinyfx.gen.ts (generated)
+el.querySelector<HTMLElement>("h3.feature-title")?.textContent = String(post.title);
+```
+
+Layout note:
+
+```css
+/* src/styles/main.css */
+[data-each="chat_each_0"] {
+  display: contents;
 }
 ```
 
-### The HTTP Client
+`display: contents` can preserve flex/grid behavior when the generated wrapper affects layout.
 
-`createHttp()` is meant to be used inside service factories, not as a global dependency-injection container. The client supports typed responses, request options, retry and timeout settings, and request or response interceptors.
+### `<if>` Directive
+
+```html
+<!-- src/components/AuthGate/AuthGate.html -->
+<if condition="isLoggedIn()">
+  <Dashboard />
+<else>
+  <Login />
+</if>
+```
+
+Supports chains:
+
+```html
+<!-- src/components/AuthGate/AuthGate.html -->
+<if condition="isAdmin()">
+  <AdminPanel />
+<else-if condition="isLoggedIn()">
+  <Dashboard />
+<else>
+  <Login />
+</if>
+```
+
+Compiler behavior:
+- Pre-renders all branches into HTML.
+- Wraps each branch with `data-branch` and initial `hidden` state.
+- Generates a `__toggle_*` function to show the active branch.
+
+### Component Wrapper System
+For each dynamic component, TinyFX generates a wrapper in `tinyfx.gen.ts`.
 
 ```ts
-// src/lib/services/post.service.ts
-import { createHttp } from "@tinyfx/runtime";
-import type { PostDto } from "@dto/post.dto";
+// src/tinyfx.gen.ts (generated)
+function __mount_Chat(el: HTMLElement, ctx: TinyFxContext): any {
+  const inst = mountComponent(ChatModule, el, ctx);
+  if (!inst) return null;
 
-const http = createHttp({
-  baseUrl: "/api",
-  timeout: 5000,
-  retries: 1,
+  const __each_chat_each_0 = el.querySelector<HTMLElement>("[data-each='chat_each_0']");
+  if (__each_chat_each_0) {
+    effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), inst));
+  }
+
+  return inst;
+}
+```
+
+Key mechanics:
+- Wrapper uses `el.querySelector`, not `document.querySelector`, so multiple component instances wire independently.
+- Wrapper reads signals through `inst.signalName()`.
+- Wrapper code is generated by the compiler and overwritten on each build.
+
+Public field requirement:
+- Signals referenced by component template directives, such as `<each of="messages()">`, must be `public` on the component class because generated code accesses `inst.messages()`.
+
+### Component Communication
+Three implemented patterns:
+
+1. Shared signals in `src/lib/state/`.
+2. HTML attributes for parent-to-child render data.
+3. Custom DOM events for child-to-parent notifications.
+
+```ts
+// src/components/Composer/Composer.ts
+this.el.dispatchEvent(
+  new CustomEvent("message:sent", {
+    detail: { content: "hello" },
+    bubbles: true,
+  }),
+);
+```
+
+```ts
+// src/components/Chat/Chat.ts
+this.el.addEventListener("message:sent", (event: Event) => {
+  const custom = event as CustomEvent<{ content: string }>;
+  console.log(custom.detail.content);
 });
+```
 
-export function createPostService() {
+### The lib Folder and Path Aliases
+```text
+src/lib/
+├── models/     # frontend model classes
+├── dto/        # API DTO types
+├── state/      # shared signals
+└── services/   # service factories
+```
+
+Use direct file imports via aliases, not barrels:
+
+```ts
+// src/components/Profile/Profile.ts
+import { User } from "@models/user.model";
+import type { UserDto } from "@dto/user.dto";
+import { currentUser } from "@state/app.state";
+import { createUserService } from "@services/user.service";
+
+void User;
+void currentUser;
+void createUserService;
+void ({} as UserDto);
+```
+
+### Services
+Service code follows factory functions.
+
+```ts
+// src/lib/services/user.service.ts
+import { createHttp } from "@tinyfx/runtime";
+import type { UserDto } from "@dto/user.dto";
+import { User } from "@models/user.model";
+
+const http = createHttp({ baseUrl: "/api" });
+
+export function createUserService() {
   return {
-    async getPost(slug: string): Promise<PostDto> {
-      return http.get<PostDto>(`/posts/${slug}`);
+    async getUser(id: number): Promise<User> {
+      const dto = await http.get<UserDto>(`/users/${id}`);
+      return User.from(dto);
     },
   };
 }
 ```
 
-### The Router
+No DI container is used by runtime or compiler for services.
 
-TinyFX ships a hard router today. That means navigation is a normal browser page load and each route is backed by a real HTML file in `dist/`. Soft routing is planned, but it is not implemented in the current runtime even though the scaffolded `tinyfx.toml` still contains commented router placeholders.
+## Real Working Example: Chat
 
-```ts
-// src/pages/blog-post.ts
-import { getParam, navigate, onDestroy, onMount } from "@tinyfx/runtime";
-import type { TinyFxContext } from "@tinyfx/runtime";
+```html
+<!-- src/components/Chat/Chat.html -->
+<section class="chat" data-component="Chat" tinyfx-dynamic>
+  <div class="container">
+    <header>
+      <div id="health-status" class="status-dot"></div>
+      <h1>Global Chat!</h1>
+    </header>
 
-export function init(el: HTMLElement, ctx: TinyFxContext): void {
-  const slug = getParam("slug");
+    <div id="chat-container">
+      <each of="messages()" as="message" key="id">
+        <ChatMessage
+          username="{{message.username}}"
+          content="{{message.content}}"
+          own="{{message.own}}"
+        />
+      </each>
+    </div>
 
-  onMount(() => {
-    console.log("page mounted", slug, ctx.params);
-    el.querySelector(".back-home")?.addEventListener("click", () => navigate("/"));
-  });
-
-  onDestroy(() => {
-    console.log("leaving", slug);
-  });
-}
+    <div id="message-form">
+      <input type="text" id="username" placeholder="Name">
+      <div class="input-wrapper">
+        <input type="text" id="content" placeholder="Type a message...">
+        <button id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+</section>
 ```
 
-### The Lib Folder
-
-`src/lib/` is where application code that should not live inside a single component goes. TinyFX uses path aliases so that generated code and handwritten code can import models, DTOs, state, and services from stable paths. There are no barrel files; each import points directly at a file so the dependency path stays explicit.
-
 ```ts
-// src/lib/models/post.model.ts
-import type { PostDto } from "@dto/post.dto";
+// src/components/Chat/Chat.ts
+import { signal } from "@tinyfx/runtime";
+import type { TinyFxContext } from "@tinyfx/runtime";
+import { createMessageService } from "@services/message.service";
 
-export class Post {
-  constructor(
-    public id: number,
-    public title: string,
-  ) {}
+type MessageDto = {
+  id: number;
+  username: string;
+  content: string;
+  own?: "sent" | "received";
+};
 
-  static from(dto: PostDto): Post {
-    return new Post(dto.id, dto.title);
+export class Chat {
+  public messages = signal<MessageDto[]>([]);
+  private currentUsername = signal("currentUser");
+  private messageService = createMessageService();
+  private pollInterval?: ReturnType<typeof setInterval>;
+
+  constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
+
+  private async fetchMessages(): Promise<void> {
+    const msgs = await this.messageService.getMessages();
+    const withOwn = msgs.map((msg: MessageDto) => ({
+      ...msg,
+      own: msg.username === this.currentUsername() ? "sent" : "received",
+    }));
+    this.messages.set(withOwn);
+  }
+
+  init(): void {
+    this.el
+      .querySelector<HTMLInputElement>("#username")
+      ?.addEventListener("input", (event) => {
+        this.currentUsername.set((event.target as HTMLInputElement).value);
+      });
+
+    this.el
+      .querySelector<HTMLButtonElement>("#send-btn")
+      ?.addEventListener("click", () => {
+        void this.sendMessage();
+      });
+
+    void this.fetchMessages();
+    this.pollInterval = setInterval(() => {
+      void this.fetchMessages();
+    }, 5000);
+  }
+
+  destroy(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+    }
+  }
+
+  private async sendMessage(): Promise<void> {
+    const contentInput = this.el.querySelector<HTMLInputElement>("#content");
+    const content = contentInput?.value.trim() ?? "";
+    if (!content) return;
+
+    await this.messageService.sendMessage({
+      username: this.currentUsername(),
+      content,
+    });
+
+    if (contentInput) contentInput.value = "";
+    await this.fetchMessages();
   }
 }
+
+export function mount(el: HTMLElement, ctx: TinyFxContext) {
+  const inst = new Chat(el, ctx);
+  inst.init();
+  return inst;
+}
 ```
 
-```ts
-// src/components/PostCard/PostCard.ts
-import { Post } from "@models/post.model";
-import { cartCount } from "@state/cart.state";
-import { createPostService } from "@services/post.service";
-
-void Post;
-void cartCount;
-void createPostService;
+```html
+<!-- src/components/ChatMessage/ChatMessage.html -->
+<div class="message {{own}}">
+  <span class="user">{{username}}</span>
+  <p>{{content}}</p>
+</div>
 ```
 
-| Alias | Folder | Use it for |
-|---|---|---|
-| `@models/*` | `src/lib/models/*` | Frontend model classes |
-| `@dto/*` | `src/lib/dto/*` | Raw API response types |
-| `@state/*` | `src/lib/state/*` | Shared signals and state |
-| `@services/*` | `src/lib/services/*` | Service factories and business logic |
+```css
+/* src/styles/main.css */
+[data-each="chat_each_0"] {
+  display: contents;
+}
+```
 
 ## CLI Reference
 
-### `tinyfx init <name>`
-
-```sh
+### `tinyfx init`
+```bash
 tinyfx init <name> [--force]
 ```
-
-This creates a new TinyFX project directory, writes the scaffold from `compiler/templates/`, and runs `npm install` inside the new project. It creates `package.json`, `tinyfx.toml`, TypeScript config files, `src/main.ts`, the starter page, the starter `Button` component, and the `src/lib/` and `src/styles/` folders. The `--force` flag exists in the CLI, but the current implementation still errors if the target directory already exists, so you should treat it as a placeholder rather than a working overwrite mode.
+Creates a new TinyFX project directory from compiler templates.
 
 ### `tinyfx build`
-
-```sh
-tinyfx build [--config <path>] [--phase-one-only] [--assets-dir <path>]
+```bash
+tinyfx build [--config tinyfx.toml] [--phase-one-only] [--assets-dir <path>]
 ```
-
-This reads the TinyFX config, compiles components, resolves pages, writes `dist/`, generates `src/tinyfx.gen.ts`, bundles JavaScript with esbuild, and copies styles and assets. `--config` points to a different `tinyfx.toml`. `--phase-one-only` stops after component compilation, which is mainly useful for debugging the build pipeline. `--assets-dir` overrides the configured assets directory for that build only. The command modifies `dist/`, writes `src/tinyfx.gen.ts`, and removes its temporary esbuild entry file when bundling finishes.
-
-The command errors if the configured components directory does not exist, if a dynamic component is missing its `.ts` file, if component references form a cycle, if a page cannot be parsed, or if esbuild cannot be found on `PATH`, in local `node_modules/.bin`, or through `npx`.
+Runs build phases and writes output to `out_dir`.
 
 ### `tinyfx serve`
-
-```sh
-tinyfx serve [--config <path>]
+```bash
+tinyfx serve [--config tinyfx.toml]
 ```
+Runs initial build, starts HTTP server, WebSocket reload server, and file watcher.
 
-This loads the config, runs an initial build, starts the HTTP server, starts the WebSocket reload server, watches the project tree, rebuilds on change, and injects the reload client into served HTML responses. It serves the configured output directory on `127.0.0.1:3000` and pushes reload messages on `127.0.0.1:3001`. It modifies the same build output and generated files as `tinyfx build`. It errors if the build fails, if the runtime cannot create its Tokio event loop, or if either network port cannot be bound.
-
-### `tinyfx generate component <Name>`
-
-```sh
+### `tinyfx generate` (`tinyfx g`)
+```bash
 tinyfx generate component <Name> [--dynamic] [--force]
-tinyfx g component <Name> [--dynamic] [--force]
-```
-
-This normalizes the component name to PascalCase, creates `src/components/<Name>/<Name>.html`, and, if `--dynamic` is set, also creates `src/components/<Name>/<Name>.ts`. Without `--dynamic`, the generator creates HTML only. With `--dynamic`, the generated HTML includes the `tinyfx-dynamic` marker and the generated TypeScript exports a `mount(el, ctx)` function. The command errors if you are not inside a TinyFX project, or if the target component directory already exists and `--force` is not provided.
-
-### `tinyfx generate page <name>`
-
-```sh
 tinyfx generate page <name> [--force]
-tinyfx g page <name> [--force]
-```
-
-This normalizes the page name to kebab-case, creates `src/pages/<name>.html`, and creates the sibling `src/pages/<name>.ts`. The route defaults to `/<name>` except for `index`, which becomes `/`. The command errors if you are not inside a TinyFX project or if either target file already exists and `--force` is not provided.
-
-### `tinyfx generate service <Name>`
-
-```sh
 tinyfx generate service <Name> [--force]
-tinyfx g service <Name> [--force]
-```
-
-This creates `src/lib/services/<name>.service.ts` using the service factory template. If you pass `AuthService`, the generated file is still `auth.service.ts`; the trailing `Service` is stripped from the filename stem but kept in the exported type and factory name. The command errors if you are not inside a TinyFX project or if the target file already exists and `--force` is not provided.
-
-### `tinyfx generate model <Name>`
-
-```sh
 tinyfx generate model <Name> [--force]
-tinyfx g model <Name> [--force]
-```
-
-This normalizes the name and creates `src/lib/models/<name>.model.ts`. The generated model imports its DTO peer through the `@dto/*` alias and includes a static `from(dto)` helper. The command errors if you are not inside a TinyFX project or if the target file already exists and `--force` is not provided.
-
-### `tinyfx generate dto <Name>`
-
-```sh
 tinyfx generate dto <Name> [--force]
-tinyfx g dto <Name> [--force]
-```
-
-This normalizes the name and creates `src/lib/dto/<name>.dto.ts`. The command errors if you are not inside a TinyFX project or if the target file already exists and `--force` is not provided.
-
-### `tinyfx generate interface <Name>`
-
-```sh
 tinyfx generate interface <Name> [--force]
-tinyfx g interface <Name> [--force]
 ```
 
-This normalizes the name and creates `src/lib/<name>.interface.ts`. The command errors if you are not inside a TinyFX project or if the target file already exists and `--force` is not provided.
+Aliases in CLI:
+- `component` alias: `c`
+- `service` alias: `s`
+- `model` alias: `m`
+- `dto` alias: `d`
+- `interface` alias: `i`
+- `page` alias: `p`
 
-## Configuration Reference
+## Configuration
+Active `tinyfx.toml` fields from `compiler/src/config.rs`:
 
-The current compiler reads these fields from `tinyfx.toml`.
-
-| Field | Type | Default | What it controls |
+| Field | Type | Default | Used by compiler |
 |---|---|---|---|
-| `entry` | `string` | `"src"` | Present in `Config`, but currently unused by the build pipeline |
-| `entry_ts` | `string` | `"src/main.ts"` | The TypeScript entry file bundled in Phase 4 |
-| `out_dir` | `string` | `"dist"` | The build output directory |
-| `components` | `string` | `"src/components"` | The component source directory |
-| `styles` | `string` | `"src/styles"` | The directory copied into `dist/css/` |
-| `static_dirs` | `string[]` | `[]` | Extra directories copied verbatim into `dist/` |
-| `assets_dir` | `string` | `"src/assets"` | A directory copied into `dist/` if it exists |
-| `pages` | `string` | `"src/pages"` | The page source directory |
-| `phase_one_only` | `boolean` | `false` | Internal debug flag that stops the build after component compilation |
+| `entry` | `string` | `"src"` | Present in config model, not used in build phases |
+| `entry_ts` | `string` | `"src/main.ts"` | Yes |
+| `out_dir` | `string` | `"dist"` | Yes |
+| `components` | `string` | `"src/components"` | Yes |
+| `styles` | `string` | `"src/styles"` | Yes |
+| `static_dirs` | `string[]` | `[]` | Yes |
+| `assets_dir` | `string` | `"src/assets"` | Yes |
+| `pages` | `string` | `"src/pages"` | Yes |
+| `phase_one_only` | `bool` | `false` | Yes |
+
+Example:
 
 ```toml
-# tinyfx.toml
-entry = "src"                  # currently present in Config but not used by the build pipeline
-entry_ts = "src/main.ts"       # bundled by esbuild with the generated glue file
-out_dir = "dist"               # final HTML, JS, CSS, and copied assets land here
-components = "src/components"  # component templates and optional behavior files
-styles = "src/styles"          # copied to dist/css
-static_dirs = ["public"]       # copied into dist/public
-assets_dir = "src/assets"      # copied into dist/assets if the directory exists
-pages = "src/pages"            # pages with <page> roots
-phase_one_only = false          # stop after component compilation
+entry = "src"
+entry_ts = "src/main.ts"
+out_dir = "dist"
+components = "src/components"
+styles = "src/styles"
+static_dirs = ["public"]
+assets_dir = "src/assets"
+pages = "src/pages"
+phase_one_only = false
 ```
 
-The scaffold currently writes additional `[server]` and `[router]` sections into `tinyfx.toml`. Those sections are placeholders today. The compiler does not read them in the current codebase.
+Note: scaffolded `[server]` and `[router]` sections are template placeholders and are not read by current compiler config parsing.
 
 ## Design Principles
 
 ### HTML Is the Source of Truth
-
-TinyFX starts from HTML files, not JSX, template DSLs, or client-side render functions. That means pages are real `.html` files, components are HTML templates, and the compiler expands them into the final output. In practice, this means a TinyFX codebase should still make sense if you open it with JavaScript turned off in your head. It also means TinyFX will not turn HTML into a thin shell around a client-side render tree.
+Pages and component templates are authored in HTML files. Build output remains inspectable as HTML files under `dist/`.
 
 ### Compile Time Over Runtime
-
-The build pipeline does as much work as it can before the browser sees the page. Component expansion, layout wrapping, route file generation, and glue generation happen ahead of time. In practice, this means browser code is mostly for enhancement, not rendering. It also means TinyFX will favor build steps over large runtime abstractions when the choice is available.
+Component expansion, directive site transformation, and route glue generation occur before browser execution.
 
 ### Explicit Over Magic
-
-TinyFX uses filenames, directories, route strings, and plain function exports instead of hidden conventions or injection containers. Services are created with factory functions. Route params are read with `getParam()`. Dynamic components are dynamic because you marked them `tinyfx-dynamic` and gave them a `.ts` file. In practice, if a feature would need lots of hidden framework rules, it probably does not belong here.
+Dynamic behavior requires explicit `tinyfx-dynamic` and explicit module exports. Services are explicit factory functions.
 
 ### JavaScript Enhances, It Does Not Replace
-
-The runtime is intentionally small. It mounts behavior on existing DOM, updates text or attributes through signals, and exposes a few helpers for routing and HTTP. It does not own rendering. In practice, this means a TinyFX app should still have meaningful HTML output before browser behavior runs. It also means TinyFX is not trying to become a client-rendered application shell.
+Runtime code mounts behavior on DOM that already exists from compile output.
 
 ### Small Enough to Understand
+Compiler and runtime responsibilities are split with clear boundaries and deterministic generation.
 
-TinyFX is deliberately narrow. The compiler, runtime, and scaffold are small enough that a developer can trace how a feature works by reading a few files. In practice, this means the framework should stay understandable by inspection, not by memorizing ecosystem lore. It also means TinyFX will say no to features that would make the codebase harder to follow than the problem is worth.
+### Islands by Default
+Static components carry no runtime mount behavior. Dynamic behavior is opt-in per component.
 
-## Status and Roadmap
+## Status
 
 | Feature | Status |
 |---|---|
-| Component expansion | ✅ Implemented |
+| Static component expansion | ✅ Implemented |
+| Dynamic components | ✅ Implemented |
 | File-based hard router | ✅ Implemented |
 | Signals and effects | ✅ Implemented |
+| `<each>` directive | ✅ Implemented |
+| `<if>` / `<else>` directive | ✅ Implemented |
+| Component wrapper system | ✅ Implemented |
 | Dev server with live reload | ✅ Implemented |
-| `<if>` conditional rendering | 📋 Planned |
-| `<each>` list rendering | 📋 Planned |
 | Soft router | 📋 Planned |
+| Class-to-closure transformation | 📋 Planned |
+| Lazy component loading | 📋 Planned |
