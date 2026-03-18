@@ -1,5 +1,5 @@
 {
-  "name": "__TINYFX_NAME__",
+  "name": "{{name}}",
   "private": true,
   "scripts": {
     "dev": "tinyfx serve",

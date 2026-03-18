@@ -18,45 +18,60 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-const PAGES_INDEX_HTML: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/pages/index.html"));
-const BUTTON_HTML: &str = include_str!(concat!(
+const PAGES_INDEX_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/components/Button/Button.html"
+    "/templates/pages/index.html"
 ));
-const BUTTON_TS: &str = include_str!(concat!(
+const PAGES_INDEX_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/components/Button/Button.ts"
+    "/templates/pages/index.ts"
 ));
-const USER_DTO_TS: &str = include_str!(concat!(
+const FEATURE_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/dto/user.dto.ts"
+    "/templates/components/FeatureCard/FeatureCard.html"
 ));
-const USER_MODEL_TS: &str = include_str!(concat!(
+const THEME_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/models/user.model.ts"
+    "/templates/components/ThemeToggle/ThemeToggle.html"
 ));
-const APP_STATE_TS: &str = include_str!(concat!(
+const THEME_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/state/app.state.ts"
+    "/templates/components/ThemeToggle/ThemeToggle.ts"
 ));
-const USER_SERVICE_TS: &str = include_str!(concat!(
+const THEME_STATE_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/services/user.service.ts"
+    "/templates/lib/state/theme.state.ts"
 ));
-const MAIN_CSS: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/styles/main.css"));
+const MODELS_GITKEEP: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/lib/models/.gitkeep"
+));
+const DTO_GITKEEP: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/lib/dto/.gitkeep"
+));
+const SERVICES_GITKEEP: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/lib/services/.gitkeep"
+));
+const MAIN_CSS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/styles/main.css"
+));
 const MAIN_TS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/main.ts"));
-const TINYFX_TOML: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/tinyfx.toml"));
+const TINYFX_TOML: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/tinyfx.toml"
+));
 const TSCONFIG_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/tsconfig.app.json"
+    "/templates/tsconfig.json"
 ));
-const PACKAGE_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/package.json"));
-const AGENTS_MD: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/AGENTS.md"));
+const PACKAGE_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/package.json"
+));
+const AGENTS_MD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/AGENTS.md"));
 
 fn write(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -91,7 +106,8 @@ pub fn run_init(name: &str, _force: bool) -> Result<()> {
 
     let dirs = [
         "src/pages",
-        "src/components/Button",
+        "src/components/FeatureCard",
+        "src/components/ThemeToggle",
         "src/lib/dto",
         "src/lib/models",
         "src/lib/state",
@@ -105,15 +121,19 @@ pub fn run_init(name: &str, _force: bool) -> Result<()> {
             .with_context(|| format!("Failed to create {}", dir_path.display()))?;
     }
 
-    let package_json = PACKAGE_JSON.replace("__TINYFX_NAME__", name);
+    // package.json uses a `{{name}}` placeholder in the template
+    let package_json = PACKAGE_JSON.replace("{{name}}", name);
+
     let files = [
         ("src/pages/index.html", PAGES_INDEX_HTML),
-        ("src/components/Button/Button.html", BUTTON_HTML),
-        ("src/components/Button/Button.ts", BUTTON_TS),
-        ("src/lib/dto/user.dto.ts", USER_DTO_TS),
-        ("src/lib/models/user.model.ts", USER_MODEL_TS),
-        ("src/lib/state/app.state.ts", APP_STATE_TS),
-        ("src/lib/services/user.service.ts", USER_SERVICE_TS),
+        ("src/pages/index.ts", PAGES_INDEX_TS),
+        ("src/components/FeatureCard/FeatureCard.html", FEATURE_HTML),
+        ("src/components/ThemeToggle/ThemeToggle.html", THEME_HTML),
+        ("src/components/ThemeToggle/ThemeToggle.ts", THEME_TS),
+        ("src/lib/state/theme.state.ts", THEME_STATE_TS),
+        ("src/lib/models/.gitkeep", MODELS_GITKEEP),
+        ("src/lib/dto/.gitkeep", DTO_GITKEEP),
+        ("src/lib/services/.gitkeep", SERVICES_GITKEEP),
         ("src/styles/main.css", MAIN_CSS),
         ("src/main.ts", MAIN_TS),
         ("tinyfx.toml", TINYFX_TOML),
@@ -143,7 +163,9 @@ pub fn run_init(name: &str, _force: bool) -> Result<()> {
             println!("  You can run it manually after changing into the project directory.");
         }
         Err(_) => {
-            println!("⚠ npm not found — install dependencies manually after entering the project directory.");
+            println!(
+                "⚠ npm not found — install dependencies manually after entering the project directory."
+            );
         }
     }
 

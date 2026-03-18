@@ -19,15 +19,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 
-use super::component::{expand_component_tags, CompiledComponent};
+use super::component::{CompiledComponent, expand_component_tags};
+use super::conditional::{IfSite, parse_if_blocks};
 use super::dependency_graph::collect_component_references;
+use super::each::{EachSite, parse_each_blocks};
+use super::pages_util::{derive_route, interpolate_placeholders, parse_attrs, rewrite_asset_paths};
 
-/// A resolved page ready to be written to the build output.
-///
-/// This is the Phase 2 output consumed later by glue generation.
 #[derive(Debug, Clone)]
 pub struct PageDef {
     pub name: String,
@@ -37,31 +37,44 @@ pub struct PageDef {
     pub out_path: PathBuf,
 }
 
-/// Resolve every page under `pages_dir` into a compiled HTML document.
-///
-/// This parses each `<page>` root, expands component usage against
-/// `component_registry`, wraps layouts when requested, and computes the final
-/// output path under `out_dir`.
-///
-/// # Errors
-/// Returns an error when a page cannot be read, when the page root is invalid,
-/// when component expansion fails, or when a requested layout cannot be
-/// resolved through the compiled component registry.
-// pub fn resolve_pages(
-//     pages_dir: &Path,
-//     out_dir: &Path,
-//     component_registry: &HashMap<String, CompiledComponent>,
-// ) -> Result<Vec<PageDef>> {
-//     if !pages_dir.exists() {
-//         return Ok(Vec::new());
-//     }
+#[derive(Debug, Clone, Default)]
+pub struct PageDirectives {
+    pub page_name: String,
+    pub each_sites: Vec<EachSite>,
+    pub if_sites: Vec<IfSite>,
+}
 
-//     let mut resolved_pages = Vec::new();
-//     collect_pages(pages_dir, pages_dir, out_dir, component_registry, &mut resolved_pages)?;
-//     Ok(resolved_pages)
-// }
+#[derive(Debug, Clone, Default)]
+pub struct ComponentDirectives {
+    pub component_name: String,
+    pub each_sites: Vec<EachSite>,
+    pub if_sites: Vec<IfSite>,
+}
 
-/// Collect all page file paths under `pages_dir` (recursively).
+/// Collect pre-parsed directive sites for dynamic components.
+pub fn collect_component_directives(
+    component_registry: &HashMap<String, CompiledComponent>,
+    _page_name: &str,
+) -> Result<Vec<ComponentDirectives>> {
+    let mut dynamic_components: Vec<&CompiledComponent> = component_registry
+        .values()
+        .filter(|component| component.is_dynamic)
+        .collect();
+    dynamic_components.sort_by(|left, right| left.name.cmp(&right.name));
+
+    let mut directives = Vec::with_capacity(dynamic_components.len());
+    for component in dynamic_components {
+        directives.push(ComponentDirectives {
+            component_name: component.name.clone(),
+            each_sites: component.each_sites.clone(),
+            if_sites: component.if_sites.clone(),
+        });
+    }
+
+    Ok(directives)
+}
+
+/// Collect all page file paths under `pages_dir` recursively.
 pub fn collect_page_paths(pages_dir: &Path) -> Result<Vec<PathBuf>> {
     let mut paths = Vec::new();
     if !pages_dir.exists() {
@@ -89,24 +102,22 @@ fn collect_page_paths_inner(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// Compile a single page into a `PageDef`.
-/// Accepts owned `PathBuf`s and an `Arc` registry so it can be called from threads.
+/// Compile one page and collect compile-time directives.
 pub fn compile_page(
     source_path: PathBuf,
     pages_root: PathBuf,
     out_dir: PathBuf,
     component_registry: std::sync::Arc<HashMap<String, CompiledComponent>>,
-) -> Result<PageDef> {
-    parse_and_expand_page(&source_path, &pages_root, &out_dir, component_registry.as_ref())
+) -> Result<(PageDef, PageDirectives)> {
+    parse_and_expand_page(
+        &source_path,
+        &pages_root,
+        &out_dir,
+        component_registry.as_ref(),
+    )
 }
 
-/// Write a resolved page to disk, creating parent directories as needed.
-///
-/// The page HTML is written exactly as stored in `page.html`.
-///
-/// # Errors
-/// Returns an error when the output directory cannot be created or when the
-/// destination file cannot be written.
+/// Write one resolved page to disk.
 pub fn write_page(page: &PageDef) -> Result<()> {
     if let Some(parent_dir) = page.out_path.parent() {
         fs::create_dir_all(parent_dir).with_context(|| {
@@ -126,10 +137,7 @@ pub fn write_page(page: &PageDef) -> Result<()> {
     Ok(())
 }
 
-/// Resolve the final output path for a page under `dist/`.
-///
-/// `index.html` pages map to the directory root while nested page paths map to
-/// `dist/<segments>/index.html`.
+/// Resolve a page output path under `dist/`.
 pub fn resolve_page_out_path(source_path: &Path, pages_root: &Path, out_dir: &Path) -> PathBuf {
     let relative_path = source_path.strip_prefix(pages_root).unwrap_or(source_path);
     let path_without_extension = relative_path.with_extension("");
@@ -150,42 +158,12 @@ pub fn resolve_page_out_path(source_path: &Path, pages_root: &Path, out_dir: &Pa
     out_path.join("index.html")
 }
 
-// fn collect_pages(
-//     dir: &Path,
-//     pages_root: &Path,
-//     out_dir: &Path,
-//     component_registry: &HashMap<String, CompiledComponent>,
-//     resolved_pages: &mut Vec<PageDef>,
-// ) -> Result<()> {
-//     for entry in fs::read_dir(dir).with_context(|| {
-//         format!(
-//             "failed to read pages directory '{}'\n  → confirm the path exists and is readable",
-//             dir.display()
-//         )
-//     })? {
-//         let entry = entry?;
-//         let path = entry.path();
-//         if path.is_dir() {
-//             collect_pages(&path, pages_root, out_dir, component_registry, resolved_pages)?;
-//         } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-//             resolved_pages.push(parse_and_expand_page(
-//                 &path,
-//                 pages_root,
-//                 out_dir,
-//                 component_registry,
-//             )?);
-//         }
-//     }
-
-//     Ok(())
-// }
-
 fn parse_and_expand_page(
     source_path: &Path,
     pages_root: &Path,
     out_dir: &Path,
     component_registry: &HashMap<String, CompiledComponent>,
-) -> Result<PageDef> {
+) -> Result<(PageDef, PageDirectives)> {
     let source_html = fs::read_to_string(source_path).with_context(|| {
         format!(
             "failed to read page '{}'\n  → confirm the file exists and is readable",
@@ -226,16 +204,43 @@ fn parse_and_expand_page(
         .unwrap_or("page")
         .to_string();
 
-    Ok(PageDef {
-        name: page_name,
-        route,
-        html: build_html_shell(&page_body),
-        source_path: source_path.to_path_buf(),
-        out_path: resolve_page_out_path(source_path, pages_root, out_dir),
-    })
+    let (with_each, each_sites) = parse_each_blocks(&page_body, &page_name, component_registry)
+        .with_context(|| {
+            format!(
+                "failed to parse <each> directives in '{}'\n  → fix the invalid loop markup and rebuild",
+                source_path.display()
+            )
+        })?;
+    let (with_conditionals, if_sites) =
+        parse_if_blocks(&with_each, &page_name, component_registry).with_context(|| {
+            format!(
+                "failed to parse <if> directives in '{}'\n  → fix the invalid conditional markup and rebuild",
+                source_path.display()
+            )
+        })?;
+    let interpolated = interpolate_placeholders(&with_conditionals);
+    let rewritten = rewrite_asset_paths(&interpolated);
+
+    Ok((
+        PageDef {
+            name: page_name.clone(),
+            route,
+            html: build_html_shell(&rewritten),
+            source_path: source_path.to_path_buf(),
+            out_path: resolve_page_out_path(source_path, pages_root, out_dir),
+        },
+        PageDirectives {
+            page_name,
+            each_sites,
+            if_sites,
+        },
+    ))
 }
 
-fn extract_page_element(source_html: &str, source_path: &Path) -> Result<(HashMap<String, String>, String)> {
+fn extract_page_element(
+    source_html: &str,
+    source_path: &Path,
+) -> Result<(HashMap<String, String>, String)> {
     let captures = page_open_re().captures(source_html).with_context(|| {
         format!(
             "page '{}' is missing a root <page> element\n  → wrap the file contents in <page>...</page>",
@@ -258,106 +263,19 @@ fn extract_page_element(source_html: &str, source_path: &Path) -> Result<(HashMa
         );
     }
 
-    Ok((parse_attrs(attrs_str), source_html[open_end..close_start].to_string()))
-}
-
-fn parse_attrs(attrs: &str) -> HashMap<String, String> {
-    let mut parsed = HashMap::new();
-    let chars: Vec<char> = attrs.chars().collect();
-    let mut index = 0;
-
-    while index < chars.len() {
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-        if index >= chars.len() {
-            break;
-        }
-
-        let key_start = index;
-        while index < chars.len()
-            && !chars[index].is_whitespace()
-            && chars[index] != '='
-            && chars[index] != '>'
-        {
-            index += 1;
-        }
-
-        let key: String = chars[key_start..index].iter().collect();
-        if key.is_empty() {
-            break;
-        }
-
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() || chars[index] != '=' {
-            parsed.insert(key, "true".to_string());
-            continue;
-        }
-        index += 1;
-
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() {
-            parsed.insert(key, String::new());
-            break;
-        }
-
-        let value = if chars[index] == '"' || chars[index] == '\'' {
-            let quote = chars[index];
-            index += 1;
-            let value_start = index;
-            while index < chars.len() && chars[index] != quote {
-                index += 1;
-            }
-            let value: String = chars[value_start..index].iter().collect();
-            if index < chars.len() {
-                index += 1;
-            }
-            value
-        } else {
-            let value_start = index;
-            while index < chars.len() && !chars[index].is_whitespace() && chars[index] != '>' {
-                index += 1;
-            }
-            chars[value_start..index].iter().collect()
-        };
-
-        parsed.insert(key, value);
-    }
-
-    parsed
-}
-
-fn derive_route(path: &Path, pages_root: &Path) -> String {
-    let relative_path = path.strip_prefix(pages_root).unwrap_or(path);
-    let path_without_extension = relative_path.with_extension("");
-    let parts: Vec<_> = path_without_extension
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect();
-
-    if parts.is_empty() || (parts.len() == 1 && parts[0] == "index") {
-        return "/".to_string();
-    }
-
-    format!(
-        "/{}",
-        parts
-            .into_iter()
-            .filter(|segment| segment != "index")
-            .collect::<Vec<_>>()
-            .join("/")
-    )
+    Ok((
+        parse_attrs(attrs_str),
+        source_html[open_end..close_start].to_string(),
+    ))
 }
 
 fn strip_tinyfx_script(inner_html: &str, source_path: &Path) -> String {
     if let Some(captures) = tinyfx_script_re().captures(inner_html) {
-        let script_body = captures.get(1).map(|m| m.as_str()).unwrap_or_default().trim();
+        let script_body = captures
+            .get(1)
+            .map(|m| m.as_str())
+            .unwrap_or_default()
+            .trim();
         if tinyfx_script_function_re().is_match(script_body) {
             eprintln!(
                 "warning: page '{}' defines functions inside <script type=\"tinyfx\">\n  → move reusable functions into src/lib/ and keep the page script to calls only",

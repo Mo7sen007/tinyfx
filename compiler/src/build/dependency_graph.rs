@@ -18,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use regex::Regex;
 
 /// Metadata for a discovered component node.
@@ -64,7 +64,9 @@ pub fn create_dependency_graph(components_dir: &Path, pages_dir: &Path) -> Resul
             .dependencies
             .entry(component_path.clone())
             .or_default();
-        dependency_graph.components.insert(component_path, component_meta);
+        dependency_graph
+            .components
+            .insert(component_path, component_meta);
     }
 
     for page_path in scan_html_files(pages_dir)? {
@@ -178,7 +180,12 @@ impl DependencyGraph {
                     component_path.display()
                 )
             })?;
-            self.register_component_refs(&component_path, &component_html, &component_name_to_path, false);
+            self.register_component_refs(
+                &component_path,
+                &component_html,
+                &component_name_to_path,
+                false,
+            );
         }
 
         let page_paths: Vec<PathBuf> = self.pages.keys().cloned().collect();
@@ -270,10 +277,12 @@ fn parse_component_meta(path: &Path) -> Result<ComponentMeta> {
     let name = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .ok_or_else(|| anyhow!(
-            "invalid component filename '{}'\n  → use a valid PascalCase .html file name",
-            path.display()
-        ))?
+        .ok_or_else(|| {
+            anyhow!(
+                "invalid component filename '{}'\n  → use a valid PascalCase .html file name",
+                path.display()
+            )
+        })?
         .to_string();
 
     Ok(ComponentMeta { name })
@@ -283,10 +292,12 @@ fn parse_page_meta(path: &Path) -> Result<PageMeta> {
     let name = path
         .file_stem()
         .and_then(|stem| stem.to_str())
-        .ok_or_else(|| anyhow!(
-            "invalid page filename '{}'\n  → use a valid .html file name under src/pages",
-            path.display()
-        ))?
+        .ok_or_else(|| {
+            anyhow!(
+                "invalid page filename '{}'\n  → use a valid .html file name under src/pages",
+                path.display()
+            )
+        })?
         .to_string();
 
     Ok(PageMeta { name })

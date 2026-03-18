@@ -18,7 +18,7 @@ use std::time::Duration;
 use crate::build;
 use crate::config;
 use anyhow::Result;
-use notify::{recommended_watcher, Event, RecursiveMode, Watcher};
+use notify::{Event, RecursiveMode, Watcher, recommended_watcher};
 use tokio::sync::broadcast;
 
 /// Watch the TinyFX source tree for file-system changes.
@@ -37,8 +37,7 @@ pub async fn watch(config: &config::Config, tx: broadcast::Sender<()>) -> Result
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
 
     let src_dir = PathBuf::from(config.entry.trim_end_matches('/'));
-    let watch_dir = std::fs::canonicalize(&src_dir)
-        .unwrap_or_else(|_| cwd.join(&src_dir));
+    let watch_dir = std::fs::canonicalize(&src_dir).unwrap_or_else(|_| cwd.join(&src_dir));
 
     // Build absolute ignore paths so they match what notify actually emits.
     //
@@ -47,8 +46,8 @@ pub async fn watch(config: &config::Config, tx: broadcast::Sender<()>) -> Result
 
     // 2. The output directory (dist/) is outside src/ but the build also
     //    touches files there; resolve it absolutely to be sure.
-    let out_dir = std::fs::canonicalize(&config.out_dir)
-        .unwrap_or_else(|_| cwd.join(&config.out_dir));
+    let out_dir =
+        std::fs::canonicalize(&config.out_dir).unwrap_or_else(|_| cwd.join(&config.out_dir));
 
     let mut watcher = recommended_watcher(move |res: notify::Result<Event>| {
         if let Ok(ev) = res {

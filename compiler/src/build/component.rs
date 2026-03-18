@@ -18,10 +18,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 
+use super::codegen::{LoopSource, detect_value_kind};
+use super::conditional::{IfSite, parse_if_blocks};
 use super::dependency_graph::DependencyGraph;
+use super::each::{EachSite, parse_each_blocks};
 
 const MAX_EXPANSIONS: usize = 500;
 
@@ -35,6 +38,8 @@ pub struct CompiledComponent {
     pub path: PathBuf,
     pub html: String,
     pub is_dynamic: bool,
+    pub each_sites: Vec<EachSite>,
+    pub if_sites: Vec<IfSite>,
 }
 
 /// Build a component registry in dependency order.
@@ -67,6 +72,9 @@ pub fn build_component_registry(
         let expanded_html = expand_component_tags(&raw_html, &component_registry)?;
         let is_dynamic = raw_html.contains("tinyfx-dynamic");
         let script_path = component_path.with_extension("ts");
+        let mut compiled_html = expanded_html;
+        let mut each_sites = Vec::new();
+        let mut if_sites = Vec::new();
 
         if is_dynamic && !script_path.exists() {
             bail!(
@@ -84,13 +92,58 @@ pub fn build_component_registry(
             );
         }
 
+        if !is_dynamic && has_directive_markup(&raw_html) {
+            eprintln!(
+                "warning: component '{}' has directive sites but no dynamic components\n  were found in its HTML\n  → ensure {} has tinyfx-dynamic on its root element",
+                component_meta.name,
+                component_path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("component template")
+            );
+        }
+
+        if is_dynamic {
+            let scope_name = component_meta.name.to_lowercase();
+            let (with_each, sites_each) = parse_each_blocks(&compiled_html, &scope_name, &component_registry)
+                .with_context(|| {
+                    format!(
+                        "failed to parse <each> directives in component '{}\n  → fix loop markup in '{}' and rebuild",
+                        component_meta.name,
+                        component_path.display()
+                    )
+                })?;
+            let (with_conditionals, sites_if) = parse_if_blocks(&with_each, &scope_name, &component_registry)
+                .with_context(|| {
+                    format!(
+                        "failed to parse <if> directives in component '{}\n  → fix conditional markup in '{}' and rebuild",
+                        component_meta.name,
+                        component_path.display()
+                    )
+                })?;
+
+            validate_component_directive_visibility(
+                &component_meta.name,
+                &script_path,
+                &sites_each,
+                &sites_if,
+                component_path,
+            )?;
+
+            compiled_html = with_conditionals;
+            each_sites = sites_each;
+            if_sites = sites_if;
+        }
+
         component_registry.insert(
             component_meta.name.clone(),
             CompiledComponent {
                 name: component_meta.name.clone(),
                 path: component_path.clone(),
-                html: expanded_html,
+                html: compiled_html,
                 is_dynamic,
+                each_sites,
+                if_sites,
             },
         );
     }
@@ -121,8 +174,8 @@ pub fn expand_component_tags(
         };
 
         let open_tag = &expanded_html[component_span.open_start..component_span.open_end];
-        let slot_content = expanded_html[component_span.open_end..component_span.close_start]
-            .to_string();
+        let slot_content =
+            expanded_html[component_span.open_end..component_span.close_start].to_string();
         let attrs = parse_attrs(open_tag)?;
         let Some(component_name) = attrs.get("name") else {
             bail!(
@@ -156,7 +209,10 @@ fn normalize_component_tags(input: &str) -> String {
         .replace_all(input, |captures: &regex::Captures| {
             let component_name = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
             let attrs = normalized_attrs(captures.get(2).map(|m| m.as_str()).unwrap_or_default());
-            format!("<component name=\"{}\"{}></component>", component_name, attrs)
+            format!(
+                "<component name=\"{}\"{}></component>",
+                component_name, attrs
+            )
         })
         .to_string();
 
@@ -174,7 +230,11 @@ fn normalize_component_tags(input: &str) -> String {
 
     component_self_closing_tag_re()
         .replace_all(&normalized, |captures: &regex::Captures| {
-            let attrs = captures.get(1).map(|m| m.as_str()).unwrap_or_default().trim();
+            let attrs = captures
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or_default()
+                .trim();
             if attrs.is_empty() {
                 "<component></component>".to_string()
             } else {
@@ -191,10 +251,18 @@ fn substitute(
 ) -> Result<String> {
     let rendered_html = token_re()
         .replace_all(&component.html, |captures: &regex::Captures| {
-            let token_name = captures.get(1).map(|m| m.as_str()).unwrap_or_default().trim();
-            attrs.get(token_name)
-                .cloned()
-                .unwrap_or_else(|| captures.get(0).map(|m| m.as_str()).unwrap_or_default().to_string())
+            let token_name = captures
+                .get(1)
+                .map(|m| m.as_str())
+                .unwrap_or_default()
+                .trim();
+            attrs.get(token_name).cloned().unwrap_or_else(|| {
+                captures
+                    .get(0)
+                    .map(|m| m.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
         })
         .to_string()
         .replace("<slot></slot>", slot_content)
@@ -387,6 +455,155 @@ fn token_re() -> &'static Regex {
     REGEX.get_or_init(|| Regex::new(r#"\{\{\s*([a-zA-Z0-9_-]+)\s*\}\}"#).unwrap())
 }
 
+fn has_directive_markup(raw_html: &str) -> bool {
+    raw_html.contains("<each") || raw_html.contains("<if")
+}
+
+fn validate_component_directive_visibility(
+    component_name: &str,
+    script_path: &PathBuf,
+    each_sites: &[EachSite],
+    if_sites: &[IfSite],
+    template_path: &PathBuf,
+) -> Result<()> {
+    let script_source = fs::read_to_string(script_path).with_context(|| {
+        format!(
+            "failed to read component script '{}'\n  → confirm the file exists and is readable",
+            script_path.display()
+        )
+    })?;
+
+    for property in collect_referenced_properties(each_sites, if_sites) {
+        ensure_property_is_public(
+            component_name,
+            &property,
+            &script_source,
+            template_path,
+            each_sites,
+            if_sites,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn collect_referenced_properties(each_sites: &[EachSite], if_sites: &[IfSite]) -> Vec<String> {
+    let mut properties = Vec::new();
+
+    for site in each_sites {
+        match &site.source {
+            LoopSource::Signal(name) => push_unique(&mut properties, name),
+            LoopSource::Plain(expr) => {
+                if let Some(name) = first_identifier(expr) {
+                    push_unique(&mut properties, &name);
+                }
+            }
+            LoopSource::Range(_, _) => {}
+        }
+    }
+
+    for site in if_sites {
+        for branch in &site.branches {
+            if let Some(condition) = &branch.condition {
+                let property = match detect_value_kind(condition) {
+                    super::codegen::ValueKind::Signal(name) => Some(name),
+                    super::codegen::ValueKind::Plain(expr) => first_identifier(&expr),
+                };
+                if let Some(name) = property {
+                    push_unique(&mut properties, &name);
+                }
+            }
+        }
+    }
+
+    properties
+}
+
+fn ensure_property_is_public(
+    component_name: &str,
+    property: &str,
+    script_source: &str,
+    template_path: &PathBuf,
+    each_sites: &[EachSite],
+    if_sites: &[IfSite],
+) -> Result<()> {
+    let escaped = regex::escape(property);
+    let private_re = Regex::new(&format!(r"(?m)\b(private|protected)\s+{}\b", escaped))
+        .with_context(|| {
+            format!(
+                "failed to compile visibility check regex for component '{}': {}",
+                component_name, property
+            )
+        })?;
+    let public_re = Regex::new(&format!(r"(?m)\bpublic\s+{}\b", escaped)).with_context(|| {
+        format!(
+            "failed to compile public member regex for component '{}': {}",
+            component_name, property
+        )
+    })?;
+
+    if private_re.is_match(script_source) || !public_re.is_match(script_source) {
+        let each_source = each_sites
+            .iter()
+            .find_map(|site| match &site.source {
+                LoopSource::Signal(name) if name == property => Some(format!("{}()", name)),
+                LoopSource::Plain(expr) if first_identifier(expr).as_deref() == Some(property) => {
+                    Some(expr.trim().to_string())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| {
+                if_sites
+                    .iter()
+                    .flat_map(|site| &site.branches)
+                    .filter_map(|branch| branch.condition.as_ref())
+                    .find(|condition| {
+                        first_identifier(condition).as_deref() == Some(property)
+                            || detect_value_kind(condition)
+                                == super::codegen::ValueKind::Signal(property.to_string())
+                    })
+                    .cloned()
+                    .unwrap_or_else(|| property.to_string())
+            });
+
+        bail!(
+            "component '{}' uses directive source '{}' in {}\n  but '{}' is not declared public on the {} class\n  → change: private {} = signal<...>(...)\n  → to:     public {} = signal<...>(...)",
+            component_name,
+            each_source,
+            template_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("component template"),
+            property,
+            component_name,
+            property,
+            property
+        );
+    }
+
+    Ok(())
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) {
+    if !value.is_empty() && !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
+}
+
+fn first_identifier(expr: &str) -> Option<String> {
+    let trimmed = expr.trim();
+    let mut out = String::new();
+    for ch in trimmed.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            out.push(ch);
+        } else {
+            break;
+        }
+    }
+
+    if out.is_empty() { None } else { Some(out) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,6 +614,8 @@ mod tests {
             path: PathBuf::from(format!("{}.html", name)),
             html: html.to_string(),
             is_dynamic: false,
+            each_sites: Vec::new(),
+            if_sites: Vec::new(),
         }
     }
 
@@ -426,8 +645,11 @@ mod tests {
             static_component("Button", r#"<button>{{variant}}<slot></slot></button>"#),
         );
 
-        let result = expand_component_tags(r#"<Button variant="primary">Go</Button>"#, &component_registry)
-            .expect("PascalCase syntax should normalize and expand");
+        let result = expand_component_tags(
+            r#"<Button variant="primary">Go</Button>"#,
+            &component_registry,
+        )
+        .expect("PascalCase syntax should normalize and expand");
 
         assert!(result.contains("<button>primaryGo</button>"));
         assert!(!result.contains("<Button"));

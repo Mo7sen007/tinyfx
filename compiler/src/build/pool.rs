@@ -1,5 +1,5 @@
-use std::thread;
 use anyhow::Result;
+use std::thread;
 
 /// Runs a set of jobs in parallel across a fixed number of worker threads.
 /// Collects all results. If any job returns an error, returns that error

@@ -13,11 +13,18 @@
 //! - It does not contain regex-based expansion logic
 //! - It does not generate glue code inline
 
+mod codegen;
 mod component;
+mod conditional;
+mod conditional_codegen;
 mod dependency_graph;
+mod each;
+mod each_codegen;
 mod glue;
-mod pool;
+mod wrapper;
 pub mod pages;
+mod pages_util;
+mod pool;
 
 use std::collections::HashMap;
 use std::fs;
@@ -25,11 +32,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-use self::component::{build_component_registry, CompiledComponent};
-use self::dependency_graph::{create_dependency_graph, DependencyGraph};
-use self::pages::PageDef;
+use self::component::{CompiledComponent, build_component_registry};
+use self::dependency_graph::{DependencyGraph, create_dependency_graph};
+use self::pages::{ComponentDirectives, PageDef, PageDirectives};
 use crate::config::Config;
 
 type ComponentRegistry = HashMap<String, CompiledComponent>;
@@ -49,14 +56,25 @@ pub fn run_build(config: &Config) -> Result<()> {
 
     let (dependency_graph, build_order) = phase_0_build_dependency_graph(config)?;
     let component_registry = phase_1_compile_components(config, &dependency_graph, &build_order)?;
+    let (resolved_pages, directives) = phase_2_process_pages(config, &component_registry)?;
+    let component_directives = pages::collect_component_directives(&component_registry, "index")?;
+    let generated_glue_path =
+        phase_3_generate_glue(
+            config,
+            &component_registry,
+            &resolved_pages,
+            &directives,
+            &component_directives,
+        )?;
 
     if config.phase_one_only {
-        println!("\nStopped after phase 1 (flag).\n");
+        println!(
+            "\nStopped after phase 3 (flag). Generated glue left at '{}' for inspection.\n",
+            generated_glue_path.display()
+        );
         return Ok(());
     }
 
-    let resolved_pages = phase_2_process_pages(config, &component_registry)?;
-    let generated_glue_path = phase_3_generate_glue(config, &component_registry, &resolved_pages)?;
     phase_4_run_asset_pipeline(config, &generated_glue_path)?;
 
     let _ = fs::remove_file(&generated_glue_path);
@@ -116,7 +134,7 @@ fn phase_1_compile_components(
 fn phase_2_process_pages(
     config: &Config,
     component_registry: &ComponentRegistry,
-) -> Result<Vec<PageDef>> {
+) -> Result<(Vec<PageDef>, Vec<PageDirectives>)> {
     println!("\nPhase 2: Page processing");
     let num_threads = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -136,11 +154,19 @@ fn phase_2_process_pages(
             let registry = Arc::clone(&registry);
             let pages_root = pages_dir.clone();
             let out_dir = out_dir.clone();
-            move || -> Result<PageDef> { pages::compile_page(path, pages_root, out_dir, registry) }
+            move || -> Result<(PageDef, PageDirectives)> {
+                pages::compile_page(path, pages_root, out_dir, registry)
+            }
         })
         .collect();
 
-    let resolved_pages = pool::run_parallel(jobs, num_threads)?;
+    let compiled_pages = pool::run_parallel(jobs, num_threads)?;
+    let mut resolved_pages = Vec::with_capacity(compiled_pages.len());
+    let mut directives = Vec::with_capacity(compiled_pages.len());
+    for (page, page_directives) in compiled_pages {
+        resolved_pages.push(page);
+        directives.push(page_directives);
+    }
 
     // Write out pages and report
     for page in &resolved_pages {
@@ -148,20 +174,23 @@ fn phase_2_process_pages(
         println!("  ✔ {} ({})", page.out_path.display(), page.route);
     }
 
-    Ok(resolved_pages)
+    Ok((resolved_pages, directives))
 }
 
 fn phase_3_generate_glue(
     config: &Config,
     component_registry: &ComponentRegistry,
     resolved_pages: &[PageDef],
+    directives: &[PageDirectives],
+    component_directives: &[ComponentDirectives],
 ) -> Result<PathBuf> {
     println!("\nPhase 3: Glue generation");
 
     let entry_ts = PathBuf::from(&config.entry_ts);
     let src_dir = entry_ts.parent().unwrap_or(Path::new("."));
     let generated_glue_path = src_dir.join("tinyfx.gen.ts");
-    let generated_glue = glue::generate_registry(component_registry, resolved_pages);
+    let generated_glue =
+        glue::generate_registry(component_registry, resolved_pages, directives, component_directives);
 
     fs::write(&generated_glue_path, generated_glue).with_context(|| {
         format!(

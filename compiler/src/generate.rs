@@ -15,7 +15,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 use include_dir::{Dir, include_dir};
 
@@ -111,7 +111,11 @@ pub enum Gen {
 /// template cannot be read or written.
 pub fn run_generate(cmd: &Gen) -> Result<()> {
     match cmd {
-        Gen::Component { name, force, dynamic } => gen_component(name, *force, *dynamic),
+        Gen::Component {
+            name,
+            force,
+            dynamic,
+        } => gen_component(name, *force, *dynamic),
         Gen::Service { name, force } => gen_service(name, *force),
         Gen::Model { name, force } => gen_model(name, *force),
         Gen::Dto { name, force } => gen_dto(name, *force),
@@ -275,7 +279,14 @@ fn render_component_template(path: &str, names: &NameSet, dynamic: bool) -> Resu
         .replace("{{Name}}", &names.pascal)
         .replace("{{name}}", &names.kebab)
         .replace("{{camelName}}", &names.camel)
-        .replace("{{type}}", if dynamic { "tinyfx-dynamic" } else { "tinyfx-static" }))
+        .replace(
+            "{{type}}",
+            if dynamic {
+                "tinyfx-dynamic"
+            } else {
+                "tinyfx-static"
+            },
+        ))
 }
 
 fn write_file(path: &Path, content: &str, force: bool) -> Result<()> {

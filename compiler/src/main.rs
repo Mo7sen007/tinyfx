@@ -86,7 +86,8 @@ fn main() -> Result<()> {
             assets_dir,
         } => {
             let mut cfg = load_config(&config_path)?;
-            cfg.phase_one_only = phase_one_only;
+            // Allow enabling from either tinyfx.toml or CLI flag.
+            cfg.phase_one_only = cfg.phase_one_only || phase_one_only;
             if let Some(dir) = assets_dir {
                 cfg.assets_dir = dir.to_string_lossy().into_owned();
             }
@@ -96,7 +97,9 @@ fn main() -> Result<()> {
             generate::run_generate(&generator)?;
         }
 
-        Command::Serve { config: config_path } => {
+        Command::Serve {
+            config: config_path,
+        } => {
             let cfg = load_config(&config_path)?;
             serve::run_serve(&cfg)?;
         }
