@@ -1,88 +1,58 @@
 # CLI Reference
 
-The `tinyfx` CLI is the main tool for managing your project and building your application.
-
-## Configuration: `tinyfx.toml`
-
-The behavior of the CLI is controlled by a `tinyfx.toml` file in your project root.
-
-```toml
-# Pages directory
-pages      = "src/pages"
-
-# TypeScript entry point
-entry_ts   = "src/main.ts"
-
-# Output directory for the build
-out_dir    = "dist"
-
-# Path to the components directory
-components = "src/components"
-
-# Path to static assets/styles (optional)
-styles     = "src/styles"
-
-```
-
-## Commands
-
-### `init <name>`
-Create a new TinyFX project in the specified directory. This scaffolds the folder structure, default config, and example files.
-
+## `tinyfx init`
 ```bash
-tinyfx init my-app
+tinyfx init <name> [--force]
 ```
+Creates a new TinyFX project from compiler templates.
 
-### `build`
-Run the full compiler pipeline (component expansion, page resolution, glue generation, and asset bundling). Output is written to the `out_dir` defined in `tinyfx.toml` (defaults to `dist/`).
-
+## `tinyfx build`
 ```bash
-tinyfx build
+tinyfx build [--config tinyfx.toml] [--phase-one-only] [--assets-dir <path>]
 ```
+Runs the full build pipeline.
 
-Notes:
-- Pages are written to `dist/<segments>/index.html` for nested routes.
-- `src/tinyfx.gen.ts` is auto-generated and overwritten on each build.
+Current phases:
+1. Dependency graph
+2. Component compilation
+3. Page processing
+4. Glue generation
+5. Asset pipeline
 
-### `generate` (alias: `g`)
-Generate project artifacts from templates. The long-form command is `tinyfx generate <type> <Name>`; a shorthand `g` alias is also supported in the CLI.
-
-- `tinyfx generate component <Name>` — creates `src/components/<PascalName>/<PascalName>.html` and, with `--dynamic`, a `.ts` file.
-- `tinyfx generate page <name>` — creates `src/pages/<kebab-name>.html` and optional `.ts` file. `index` maps to `/`.
-- `tinyfx generate service <Name>` — creates `src/lib/services/<kebab-name>.service.ts`.
-- `tinyfx generate model <Name>` — creates `src/lib/models/<kebab-name>.model.ts`.
-- `tinyfx generate dto <Name>` — creates `src/lib/dto/<kebab-name>.dto.ts`.
-
-Examples:
-
+## `tinyfx serve`
 ```bash
-tinyfx generate component UserProfile
-tinyfx generate page about
+tinyfx serve [--config tinyfx.toml]
 ```
+Runs build + HTTP server + WebSocket reload + file watch loop.
 
-### `serve`
-Start the integrated development server with live reload.
-
+## `tinyfx generate` (alias: `tinyfx g`)
 ```bash
-tinyfx serve
+tinyfx generate component <Name> [--dynamic] [--force]
+tinyfx generate page <name> [--force]
+tinyfx generate service <Name> [--force]
+tinyfx generate model <Name> [--force]
+tinyfx generate dto <Name> [--force]
+tinyfx generate interface <Name> [--force]
 ```
 
-Behavior:
-- Binds an HTTP server on `127.0.0.1:3000` to serve files from the configured `out_dir`.
-- Starts a WebSocket server on `127.0.0.1:3001` that notifies connected browsers to reload when builds complete.
-- Performs an initial build before serving and triggers rebuilds when source files change.
+Subcommand aliases:
+- `component` -> `c`
+- `service` -> `s`
+- `model` -> `m`
+- `dto` -> `d`
+- `interface` -> `i`
+- `page` -> `p`
 
-Ports:
+## Config Fields (`tinyfx.toml`)
+Active fields in compiler config model:
+- `entry`
+- `entry_ts`
+- `out_dir`
+- `components`
+- `styles`
+- `static_dirs`
+- `assets_dir`
+- `pages`
+- `phase_one_only`
 
-| Port | Purpose |
-|------|---------|
-| 3000 | HTTP file server (static assets) |
-| 3001 | WebSocket endpoint for live reload |
-
-Build-only mode (phase 1)
-
-If you need to run only the component expansion phase (internal/diagnostics), use:
-
-```bash
-tinyfx build --phase-one-only
-```
+The scaffold may include additional sections (such as server/router placeholders) that are not consumed by the current config parser.

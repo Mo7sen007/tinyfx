@@ -1,29 +1,32 @@
-# Introduction to TinyFX
+# Introduction
 
-TinyFX is a lightweight, compiler-augmented web framework designed for building efficient, reactive web applications with minimal overhead. It combines a Rust-based compiler for static template expansion with a tiny TypeScript runtime for reactivity and behavior.
+TinyFX is a hybrid web framework with two implemented parts:
+- Rust compiler CLI: handles component and page processing at build time.
+- TypeScript runtime (`@tinyfx/runtime`): provides browser-side primitives for reactivity, DOM updates, navigation helpers, and HTTP.
 
-## Key Features
+## Build-Time First Model
+The compiler performs most of the work before the browser runs application code:
+1. Build dependency graph from `src/components/` and `src/pages/`.
+2. Compile components in dependency order.
+3. Parse and write resolved pages.
+4. Generate `src/tinyfx.gen.ts` glue.
+5. Run esbuild and copy styles/assets.
 
-- **Zero-Runtime Templates**: Components are expanded at build time, resulting in standard HTML with no template parsing in the browser.
-- **Explicit Reactivity**: A simple, powerful signal-based reactivity system (similar to SolidJS or Angular Signals) without proxies or magic.
-- **TypeScript First**: Designed with first-class TypeScript support for runtime behavior and typed context.
-- **Minimal Footprint**: The runtime is extremely small, providing only what you need: signals, DOM bindings, and a typed HTTP client.
-- **Component-Based Architecture**: Build encapsulated components with their own HTML templates and TypeScript logic.
+## Runtime Scope
+The runtime exports:
+- `signal`, `effect`
+- `bindText`, `bindAttr`, `bindClass`
+- `createHttp`
+- `initRouter`, `getParam`, `navigate`, `goBack`
+- `onMount`, `onDestroy`
+- `TinyFxContext`
+- `RouteMap`, `RouteMeta`
+- `registerInstance`, `destroyNode`
 
-## How it Works
+## What TinyFX Is Optimized For
+- HTML-first multi-page applications.
+- Compile-time expansion of component templates.
+- Explicit state and DOM wiring.
+- Opt-in runtime behavior through dynamic components.
 
-TinyFX uses a unique "compile-then-hydrate" approach:
-
-1.  **Authoring**: You write HTML templates using `<component>` tags and TypeScript classes for behavior.
-2.  **Compilation**: The TinyFX compiler (written in Rust) processes your HTML. It replaces `<component>` tags with their actual template content, injects properties, and handles slots—all at build time.
-3.  **Generation**: The compiler generates a `tinyfx.gen.ts` file that wires up your TypeScript components to the DOM elements produced in the compilation step.
-4.  **Runtime**: In the browser, TinyFX finds elements with the `data-component` attribute and "hydrates" them by instantiating your TypeScript classes.
-
-## Project Structure
-
-A typical TinyFX project looks like this:
-
-- `src/components/`: Your components (each in its own folder with `.html` and `.ts` files).
-- `src/pages/`: Page files with a `<page route="...">` root element.
-- `src/main.ts`: App-level bootstrap code.
-- `tinyfx.toml`: Configuration for the compiler.
+Soft routing is planned and not currently implemented.

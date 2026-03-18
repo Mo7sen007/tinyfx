@@ -1,40 +1,44 @@
-# Context & Services
+# Context and Services
 
-TinyFX no longer uses a runtime dependency injection container. Instead, pages and components receive a lightweight `TinyFxContext` and services are created explicitly with factory functions.
+TinyFX does not implement a runtime dependency injection container.
 
-## TinyFxContext
+## `TinyFxContext`
+`TinyFxContext` is passed into page and component mount/init functions and includes route params and `navigate`.
 
-`TinyFxContext` is imported from `@tinyfx/runtime` and contains route-aware helpers:
-
-```typescript
+```ts
+// src/pages/profile.ts
 import type { TinyFxContext } from "@tinyfx/runtime";
 
-export function init(el: HTMLElement, ctx: TinyFxContext) {
+export function init(el: HTMLElement, ctx: TinyFxContext): void {
   console.log(ctx.params);
-  ctx.navigate("/");
+  void el;
 }
 ```
 
-## Service factories
+## Service Pattern
+Use explicit factory functions in `src/lib/services/`.
 
-Create services via factory functions in `src/lib/services/`.
-
-```typescript
+```ts
+// src/lib/services/post.service.ts
 import { createHttp } from "@tinyfx/runtime";
 
 const http = createHttp({ baseUrl: "/api" });
 
-export function createUserService() {
+export function createPostService() {
   return {
-    async getUser(id: number) {
-      return http.get(`/users/${id}`);
+    async list() {
+      return http.get("/posts");
     },
   };
 }
 ```
 
-Use them directly where needed:
+## Shared State Pattern
+Use shared signals in `src/lib/state/` for cross-component state.
 
-```typescript
-const userService = createUserService();
+```ts
+// src/lib/state/session.state.ts
+import { signal } from "@tinyfx/runtime";
+
+export const currentUserId = signal<number | null>(null);
 ```

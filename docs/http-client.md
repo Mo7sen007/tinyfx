@@ -1,79 +1,50 @@
 # HTTP Client
 
-TinyFX includes a thin, type-safe wrapper around the standard `fetch` API called `createHttp`.
+TinyFX runtime provides `createHttp()`.
 
-## Creating a Client
-
-You typically create an HTTP client instance inside a service factory and consume that service from components/pages.
-
-```typescript
+## Create a Client
+```ts
+// src/lib/services/user.service.ts
 import { createHttp } from "@tinyfx/runtime";
 
 const http = createHttp({
-  baseUrl: "https://api.example.com",
-  headers: {
-    "X-App-ID": "tinyfx-demo"
-  },
-  timeout: 5000, // 5s timeout
-  retries: 3
+  baseUrl: "/api",
+  timeout: 5000,
+  retries: 1,
 });
 ```
 
-## Making Requests
+## Typed Requests
+```ts
+// src/lib/services/user.service.ts
+type UserDto = { id: number; name: string };
 
-The client supports standard HTTP methods: `get`, `post`, `put`, `patch`, and `delete`.
-
-```typescript
-// Fetching data
-const users = await http.get<User[]>("/users");
-
-// Sending data
-await http.post("/users", { name: "John" });
+export function createUserService() {
+  return {
+    async getUser(id: number): Promise<UserDto> {
+      return http.get<UserDto>(`/users/${id}`);
+    },
+  };
+}
 ```
 
-## Request Options
+## Supported Methods
+- `get`
+- `post`
+- `put`
+- `patch`
+- `delete`
 
-You can pass additional options to each request:
+## Request Features
+- query params
+- custom headers
+- per-request timeout override
+- abort signal
+- request interceptors
+- response interceptors
 
-- `params`: Query parameters object.
-- `headers`: Additional headers.
-- `timeout`: Override default timeout.
-- `signal`: An `AbortSignal` for manual cancellation.
-
-```typescript
-const user = await http.get<User>("/user", {
-  params: { id: "123" },
-  headers: { "Authorization": "Bearer ..." }
-});
-```
-
-## Interceptors
-
-You can add interceptors to modify requests or responses globally.
-
-```typescript
-const http = createHttp({
-  requestInterceptors: [
-    async (url, options) => {
-      // Add auth token to every request
-      options.headers = { ...options.headers, Token: "..." };
-      return { url, options };
-    }
-  ],
-  responseInterceptors: [
-    async (response) => {
-      if (response.status === 401) {
-        // Handle unauthorized
-      }
-      return response;
-    }
-  ]
-});
-```
-
-## Error Handling
-
-The client throws specific error classes for easier debugging:
-- `HttpError`: For non-2xx responses.
-- `HttpTimeoutError`: When a request times out.
-- `HttpParseError`: When response JSON parsing fails.
+## Error Types
+Runtime HTTP package exposes error classes including:
+- `HttpError`
+- `HttpTimeoutError`
+- `HttpParseError`

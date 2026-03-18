@@ -1,58 +1,41 @@
-# Signals & Reactivity
+# Signals and Effects
 
-TinyFX provides a minimal, explicit reactivity system based on **Signals**.
+TinyFX reactivity is explicit and function-based.
 
-## What are Signals?
-
-A Signal is a wrapper around a value that tracks when it changes and who is interested in that value. It's similar to `Ref` in Vue or `Signal` in SolidJS/Angular.
-
-## Basic Usage
-
-### creating a Signal
-Use the `signal()` function to create a new reactive value.
-
-```typescript
+## `signal()`
+```ts
+// src/lib/state/counter.state.ts
 import { signal } from "@tinyfx/runtime";
 
-const count = signal(0);
+export const count = signal(0);
 ```
 
-### Reading a Signal
-Call the signal as a function to get its current value.
-
-```typescript
-console.log(count()); // 0
+Read current value:
+```ts
+const current = count();
 ```
 
-### Updating a Signal
-Use the `.set()` method to update the value.
-
-```typescript
+Write value:
+```ts
 count.set(count() + 1);
 ```
 
-## Effects
+## `effect()`
+`effect()` tracks signal reads performed in its callback and re-runs when those values change.
 
-An `effect()` is a function that runs automatically whenever any signals it "depends" on change.
-
-```typescript
-import { signal, effect } from "@tinyfx/runtime";
-
-const count = signal(0);
+```ts
+// src/components/Counter/Counter.ts
+import { effect } from "@tinyfx/runtime";
+import { count } from "@state/counter.state";
 
 effect(() => {
-  console.log("The count is now:", count());
+  console.log("count changed", count());
 });
-
-count.set(1); // Logs: "The count is now: 1"
-count.set(2); // Logs: "The count is now: 2"
 ```
 
-### How it Works
-When an `effect` runs, TinyFX tracks which signals are called. It then adds the effect as a subscriber to those signals. When a signal is updated via `.set()`, it notifies all its subscribers to re-run.
+## Directive Integration
+Compiler-generated glue uses `effect()` to wire signal-based directive sources:
+- `<each of="items()">` -> reconciler call inside effect.
+- signal-based `<if>` conditions -> toggle call inside effect.
 
-## Guidelines
-
-- **Always initialize signals immediately**: Do this in your class properties or constructor.
-- **Avoid side effects inside effects**: Effects should primarily be used to sync state with the DOM or other external systems.
-- **Minimalistic**: TinyFX signals don't use Proxies, so you must always use the function call `()` to read and `.set()` to write.
+This behavior is generated into `tinyfx.gen.ts`.

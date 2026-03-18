@@ -1,114 +1,126 @@
 # Components
 
-Components are the building blocks of TinyFX. Each component consists of an HTML template and an optional TypeScript class for behavior.
-
-## Creating Components
-
-Use the CLI to scaffold components. The canonical command is `tinyfx generate component <Name>`;
-see the CLI Reference for information about available aliases.
-
-Scaffolding creates `src/components/<PascalName>/` with:
-- `<PascalName>.html` — the component template
-- `<PascalName>.ts` — optional behavior file (created only when `--dynamic` is passed or when requested)
-
-## HTML Templates
-
-Component templates are standard HTML. They can include two special features: **Slots** and **Tokens**.
-
-### Slots
-The `<slot></slot>` element is where the children of the component tag will be placed.
+## Static Components (Default)
+A component is static unless runtime behavior is explicitly enabled.
 
 ```html
-<!-- Alert.html -->
-<div class="alert">
-  <div class="icon">⚠️</div>
-  <div class="content">
-    <slot></slot>
-  </div>
+<!-- src/components/FeatureCard/FeatureCard.html -->
+<div class="feature-card">
+  <h3>{{title}}</h3>
 </div>
 ```
 
-Usage:
-```html
-<component name="Alert">
-  Something went wrong!
-</component>
-```
+Static components are expanded at build time and do not mount runtime behavior.
 
-### Tokens (Props)
-Tokens allow you to inject values passed as attributes on the `<component>` tag. Tokens use the `{{ name }}` syntax.
+## Dynamic Components
+Dynamic behavior requires both:
+1. `tinyfx-dynamic` in component HTML.
+2. sibling same-name `.ts` file.
 
 ```html
-<!-- Alert.html -->
-<div class="alert alert-{{ type }}">
-  <slot></slot>
-</div>
+<!-- src/components/ThemeToggle/ThemeToggle.html -->
+<button class="theme-toggle" tinyfx-dynamic>
+  <i class="fa-solid fa-moon"></i>
+</button>
 ```
 
-Usage:
-```html
-<component name="Alert" type="danger">
-  Critical error!
-</component>
-```
-
-At build time, `{{ type }}` will be replaced with `danger`.
-
-## TypeScript Behavior
-
-To add behavior to a component, export a class and a `mount` function.
-
-### The Component Class
-The class receives the component's root `HTMLElement` and the `TinyFxContext` in its constructor.
-
-```typescript
+```ts
+// src/components/ThemeToggle/ThemeToggle.ts
 import type { TinyFxContext } from "@tinyfx/runtime";
-import { bindText } from "@tinyfx/runtime";
 
-export class Alert {
+export class ThemeToggle {
   constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
 
-  init() {
-    console.log("Alert mounted");
-    // Use this.el to find children or bind state
-  }
-
-  destroy() {
-    // Clean up event listeners or subscriptions
+  init(): void {
+    this.el.addEventListener("click", () => {
+      console.log("toggle");
+    });
   }
 }
-```
 
-### The Mount Helper
-The compiler looks for a `mount` function in your `.ts` file to initialize the component.
-
-```typescript
 export function mount(el: HTMLElement, ctx: TinyFxContext) {
-  const inst = new Alert(el, ctx);
+  const inst = new ThemeToggle(el, ctx);
   inst.init();
   return inst;
 }
 ```
 
-### Dynamic components and `tinyfx-dynamic`
+Compiler enforcement:
+- `tinyfx-dynamic` and no `.ts` -> error.
+- `.ts` and no `tinyfx-dynamic` -> warning.
 
-If a component should mount runtime behavior, follow these rules:
+## Generated Wrapper System
+For each dynamic component, the compiler generates `__mount_ComponentName` in `tinyfx.gen.ts`.
 
-- Add the `tinyfx-dynamic` attribute to the component root in the `.html` file.
-- Create a matching `.ts` alongside the `.html` that exports a `mount(el, ctx)` helper.
-- The compiler will warn if a `.ts` exists without `tinyfx-dynamic`, or error if the `.html` has `tinyfx-dynamic` but the `.ts` is missing.
+Wrapper responsibilities:
+- call `mountComponent`.
+- guard with `if (!inst) return null;`.
+- wire component directive sites to instance fields.
+- return the instance.
 
-Example dynamic component root:
+Important scope rule:
+- wrapper uses `el.querySelector(...)` for directive site lookup.
+- this avoids cross-instance interference when the same component appears multiple times.
 
+## `<each>` Directive
 ```html
-<section class="counter" data-component="Counter" tinyfx-dynamic>
-  <h2>Counter</h2>
-  <slot></slot>
-</section>
+<!-- src/components/Chat/Chat.html -->
+<each of="messages()" as="message" key="id" class="chat-list">
+  <ChatMessage content="{{message.content}}" />
+</each>
 ```
 
-## Styling Components
+Supported `of` forms:
+- signal call: `messages()`
+- plain expression: `messages`
+- integer: `10`
+- range: `1..5`
 
-TinyFX doesn't enforce a specific styling solution. You can use global CSS, CSS modules (if configured in your bundler), or utility-first frameworks like Tailwind.
+Rules:
+- `as` is required.
+- `key` is required for non-range collection forms.
+- `key` must match a real field on each item.
 
-Since the compiler just replaces tags, your component's classes will remain in the output HTML.
+Compiler output:
+- replaces site with `data-each` container.
+- emits `__create_*`, `__update_*`, and `__reconcile_*`.
+- emits signal wiring via `effect()` for signal sources.
+
+Layout note:
+```css
+/* src/styles/main.css */
+[data-each="chat_each_0"] {
+  display: contents;
+}
+```
+
+Use this when the generated wrapper affects flex/grid behavior.
+
+## `<if>` Directive
+```html
+<!-- src/components/AuthGate/AuthGate.html -->
+<if condition="isLoggedIn()">
+  <Dashboard />
+<else>
+  <Login />
+</if>
+```
+
+Also supports `<else-if>` chains. Branches are pre-rendered in HTML and runtime toggle helpers control visibility.
+
+## Public Field Requirement for Template Signals
+When a component template references `messages()` or another instance-backed expression in directives, the generated wiring reads through `inst.<field>()`.
+
+Directive-bound fields must be declared `public` in the component class.
+
+```ts
+// src/components/Chat/Chat.ts
+import { signal } from "@tinyfx/runtime";
+
+export class Chat {
+  public messages = signal<string[]>([]);
+}
+```
+
+## Current Generator Note
+The component generator template currently inserts a `tinyfx-static` marker for non-dynamic generated component HTML. The compiler does not require that marker to treat a component as static.

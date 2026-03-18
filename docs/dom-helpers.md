@@ -1,65 +1,40 @@
-# DOM Bindings
+# DOM Helpers
 
-TinyFX provides helper functions to easily bind reactive signals to DOM elements. These helpers wrap `effect()` for common tasks.
+Runtime helper exports from `@tinyfx/runtime`:
+- `bindText`
+- `bindAttr`
+- `bindClass`
+
+These helpers are thin wrappers around `effect()` and are used for direct DOM synchronization.
 
 ## `bindText`
+```ts
+// src/components/Status/Status.ts
+import { bindText, signal } from "@tinyfx/runtime";
 
-Updates the `textContent` of an element whenever a signal changes.
-
-```typescript
-import { signal, bindText } from "@tinyfx/runtime";
-
-export class Counter {
-  count = signal(0);
-  
-  init() {
-    const output = this.el.querySelector("#count-val") as HTMLElement;
-    bindText(output, () => this.count());
-  }
-}
+const value = signal("ready");
+const el = document.querySelector("#status") as HTMLElement;
+bindText(el, () => value());
 ```
 
 ## `bindAttr`
+```ts
+// src/components/ThemeBadge/ThemeBadge.ts
+import { bindAttr, signal } from "@tinyfx/runtime";
 
-Updates an attribute of an element based on a signal.
-
-```typescript
-import { signal, bindAttr } from "@tinyfx/runtime";
-
-export class ThemeToggle {
-  isDark = signal(false);
-  
-  init() {
-    bindAttr(this.el, "data-theme", () => this.isDark() ? "dark" : "light");
-  }
-}
+const theme = signal("light");
+const el = document.querySelector("#theme-badge") as HTMLElement;
+bindAttr(el, "data-theme", () => theme());
 ```
 
 ## `bindClass`
+```ts
+// src/components/Modal/Modal.ts
+import { bindClass, signal } from "@tinyfx/runtime";
 
-Toggles a CSS class based on a boolean reactive value.
-
-```typescript
-import { signal, bindClass } from "@tinyfx/runtime";
-
-export class Modal {
-  isOpen = signal(false);
-  
-  init() {
-    const backdrop = this.el.querySelector(".backdrop") as HTMLElement;
-    bindClass(backdrop, "is-visible", () => this.isOpen());
-  }
-}
+const open = signal(false);
+const el = document.querySelector("#modal") as HTMLElement;
+bindClass(el, "is-open", () => open());
 ```
 
-## Manual Bindings
-
-You can always create your own custom bindings using `effect()` if the built-in helpers don't cover your use case.
-
-```typescript
-import { effect } from "@tinyfx/runtime";
-
-effect(() => {
-  this.el.style.backgroundColor = this.color();
-});
-```
+Use `effect()` directly when helper signatures do not match required logic.
