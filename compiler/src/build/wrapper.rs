@@ -83,13 +83,13 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
     match &site.source {
         LoopSource::Signal(name) => {
             buf.line(&format!(
-                "effect(() => __reconcile_{}(__each_{}, inst.{}(), inst));",
+                "effect(() => __reconcile_{}(__each_{}, inst.{}(), ctx));",
                 site.id, site.id, name
             ));
         }
         LoopSource::Plain(expr) => {
             buf.line(&format!(
-                "__reconcile_{}(__each_{}, inst.{}, inst);",
+                "__reconcile_{}(__each_{}, inst.{}, ctx);",
                 site.id,
                 site.id,
                 expr.trim()
@@ -102,7 +102,7 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
                 site.id, len, start
             ));
             buf.line(&format!(
-                "__reconcile_{}(__each_{}, __items_{}, inst);",
+                "__reconcile_{}(__each_{}, __items_{}, ctx);",
                 site.id, site.id, site.id
             ));
         }
@@ -162,6 +162,7 @@ fn source_to_property(site: &EachSite) -> String {
 mod tests {
     use super::*;
     use crate::build::conditional::IfBranch;
+    use crate::build::each::KeyStrategy;
 
     fn emit(spec: ComponentWrapperSpec) -> String {
         let mut buf = TsBuffer::new();
@@ -191,15 +192,18 @@ mod tests {
                 id: "chat_each_0".to_string(),
                 source: LoopSource::Signal("messages".to_string()),
                 item_var: "message".to_string(),
-                key_expr: "id".to_string(),
+                key_strategy: KeyStrategy::Keyed {
+                    field_name: "id".to_string(),
+                },
                 template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
                 has_dynamic_components: false,
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
         });
 
-        assert!(code.contains("effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), inst));"));
+        assert!(code.contains("effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx));"));
         assert!(!code.contains("__reconcile_chat_each_0(__each_chat_each_0, messages()"));
     }
 
@@ -211,15 +215,18 @@ mod tests {
                 id: "chat_each_0".to_string(),
                 source: LoopSource::Plain("items".to_string()),
                 item_var: "item".to_string(),
-                key_expr: "id".to_string(),
+                key_strategy: KeyStrategy::Keyed {
+                    field_name: "id".to_string(),
+                },
                 template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
                 has_dynamic_components: false,
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
         });
 
-        assert!(code.contains("__reconcile_chat_each_0(__each_chat_each_0, inst.items, inst);"));
+        assert!(code.contains("__reconcile_chat_each_0(__each_chat_each_0, inst.items, ctx);"));
         assert!(!code.contains("effect(() => __reconcile_chat_each_0"));
     }
 
@@ -250,8 +257,11 @@ mod tests {
                 id: "chat_each_0".to_string(),
                 source: LoopSource::Signal("messages".to_string()),
                 item_var: "message".to_string(),
-                key_expr: "id".to_string(),
+                key_strategy: KeyStrategy::Keyed {
+                    field_name: "id".to_string(),
+                },
                 template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
                 has_dynamic_components: false,
                 dynamic_component_names: Vec::new(),
             }],
@@ -281,8 +291,11 @@ mod tests {
                 id: "chat_each_0".to_string(),
                 source: LoopSource::Signal("messages".to_string()),
                 item_var: "message".to_string(),
-                key_expr: "id".to_string(),
+                key_strategy: KeyStrategy::Keyed {
+                    field_name: "id".to_string(),
+                },
                 template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
                 has_dynamic_components: false,
                 dynamic_component_names: Vec::new(),
             }],

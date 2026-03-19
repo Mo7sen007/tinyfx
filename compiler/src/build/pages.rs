@@ -204,13 +204,19 @@ fn parse_and_expand_page(
         .unwrap_or("page")
         .to_string();
 
-    let (with_each, each_sites) = parse_each_blocks(&page_body, &page_name, component_registry)
-        .with_context(|| {
-            format!(
-                "failed to parse <each> directives in '{}'\n  → fix the invalid loop markup and rebuild",
-                source_path.display()
-            )
-        })?;
+    let source_file = source_path.display().to_string();
+    let (with_each, each_sites) = parse_each_blocks(
+        &page_body,
+        &page_name,
+        &source_file,
+        component_registry,
+    )
+    .with_context(|| {
+        format!(
+            "failed to parse <each> directives in '{}'\n  → fix the invalid loop markup and rebuild",
+            source_path.display()
+        )
+    })?;
     let (with_conditionals, if_sites) =
         parse_if_blocks(&with_each, &page_name, component_registry).with_context(|| {
             format!(

@@ -105,7 +105,12 @@ pub fn build_component_registry(
 
         if is_dynamic {
             let scope_name = component_meta.name.to_lowercase();
-            let (with_each, sites_each) = parse_each_blocks(&compiled_html, &scope_name, &component_registry)
+            let (with_each, sites_each) = parse_each_blocks(
+                &compiled_html,
+                &scope_name,
+                &component_path.display().to_string(),
+                &component_registry,
+            )
                 .with_context(|| {
                     format!(
                         "failed to parse <each> directives in component '{}\n  → fix loop markup in '{}' and rebuild",
