@@ -9,9 +9,9 @@ This folder contains topic-focused documentation that matches the current implem
 - `components.md`: Static vs dynamic components, wrappers, `<each>`, and `<if>`.
 - `signals.md`: `signal()` and `effect()` patterns used by runtime and generated glue.
 - `dom-helpers.md`: `bindText`, `bindAttr`, and `bindClass` helpers.
-- `http-client.md`: `createHttp()` usage and error classes.
-- `routing.md`: Hard routing model and route param helpers.
-- `dependency-injection.md`: Current context and service-factory approach.
+- `http-client.md`: `createHttp()` usage and discriminated error types.
+- `routing.md`: Hard routing model, route param helpers, and `init()` bootstrap.
+- `dependency-injection.md`: Context pattern and service-factory approach.
 
 ## Source of Truth
 When docs conflict, follow implementation in:

@@ -1,6 +1,5 @@
 // Button component
 
-import { signal } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
 export class Button {
@@ -8,7 +7,6 @@ export class Button {
 
   init(): void {
     console.log("Button mounted", this.el);
-    void signal;
 
     this.el.addEventListener("click", () => {
       console.log("Button clicked");

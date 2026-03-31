@@ -1,7 +1,7 @@
 <!-- Button component template.
      {{variant}} is replaced at compile time from the usage attributes.
      <slot></slot> is replaced with the children of the <component> tag. -->
-<div class="btn btn-{{variant}}" data-component="Button">
+<div class="btn btn-{{variant}}" tinyfx-dynamic>
   <button id="inc" class="btn btn-primary">+</button>
   <span id="output">Count: 0</span>
   <slot></slot>

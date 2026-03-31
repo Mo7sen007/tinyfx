@@ -6,13 +6,11 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@models/*": ["lib/models/*"],
-      "@dto/*": ["lib/dto/*"],
-      "@state/*": ["lib/state/*"],
-      "@services/*": ["lib/services/*"],
-      "@tinyfx/runtime": ["../../runtime/src/index.ts"],
-      "@tinyfx/runtime/*": ["../../runtime/src/*"]
+      "@models/*": ["src/lib/models/*"],
+      "@dto/*": ["src/lib/dto/*"],
+      "@state/*": ["src/lib/state/*"],
+      "@services/*": ["src/lib/services/*"]
     }
   },
-  "include": ["main.ts", "components/**/*.ts", "lib/**/*.ts"]
+  "include": ["src"]
 }

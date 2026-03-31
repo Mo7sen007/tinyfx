@@ -1,7 +1,7 @@
 // @tinyfx/runtime — HTTP client
 // Thin, typed wrapper over fetch.
 
-import { HttpConfig, HttpError, HttpParseError, HttpTimeoutError, RequestOptions } from "./data";
+import { HttpConfig, HttpError, RequestOptions, httpError, timeoutError, parseError, isHttpError } from "./data";
 import { buildUrl, sleep } from "./helper";
 
 /**
@@ -96,7 +96,7 @@ export function createHttp(config: HttpConfig = {}) {
             if (options.signal?.aborted) {
               throw err; // User cancelled
             }
-            throw new HttpTimeoutError(requestUrl, timeoutMs);
+            throw timeoutError(requestUrl, timeoutMs);
           }
           throw err;
         } finally {
@@ -109,7 +109,7 @@ export function createHttp(config: HttpConfig = {}) {
         }
 
         if (!res.ok) {
-          throw new HttpError(res.status, res.statusText, requestUrl, method, res);
+          throw httpError(res.status, res.statusText, requestUrl, method, res);
         }
 
         // Parse response based on content type
@@ -123,7 +123,7 @@ export function createHttp(config: HttpConfig = {}) {
             }
             return JSON.parse(text) as T;
           } catch (err) {
-            throw new HttpParseError(
+            throw parseError(
               `Failed to parse JSON response: ${err instanceof Error ? err.message : "Unknown error"}`,
               requestUrl
             );
@@ -143,9 +143,8 @@ export function createHttp(config: HttpConfig = {}) {
         }
       } catch (err) {
         // Retry logic for network errors or 5xx errors
-        const shouldRetry =
-          attempts < maxAttempts &&
-          (!(err instanceof HttpError) || (err.status >= 500 && err.status < 600));
+        const is5xx = isHttpError(err) && err.status >= 500 && err.status < 600;
+        const shouldRetry = attempts < maxAttempts && (!isHttpError(err) || is5xx);
 
         if (shouldRetry) {
           await sleep(retryDelay * attempts);

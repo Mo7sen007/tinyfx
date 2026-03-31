@@ -1,6 +1,5 @@
 // {{Name}} component
 
-import { signal } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
 export class {{Name}} {
@@ -12,7 +11,6 @@ export class {{Name}} {
   init(): void {
     console.log("{{Name}} mounted", this.el);
     // setup: add event listeners, bind state to DOM elements, etc.
-    void signal;
   }
 
   destroy?(): void {

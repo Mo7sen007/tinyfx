@@ -3,11 +3,10 @@
 import { onMount, onDestroy } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
-export function init(el: HTMLElement, ctx: TinyFxContext): void {
+export function init(_el: HTMLElement, ctx: TinyFxContext): void {
   onMount(() => {
-    console.log("{{Name}} page mounted", el);
+    console.log("{{Name}} page mounted");
     // setup: read ctx.params, bind state, initialize components, etc.
-    void ctx;
   });
 
   onDestroy(() => {

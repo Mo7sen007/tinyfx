@@ -41,10 +41,11 @@ pub fn generate_registry(
     let (page_imports, page_entries, page_module_aliases) =
         collect_page_modules(&src_dir, &sorted_pages);
     let has_each = has_each_sites(page_directives, component_directives);
+    let uses_reactivity = uses_reactivity(page_directives, component_directives);
 
     let mut buf = TsBuffer::new();
     emit_header(&mut buf);
-    emit_runtime_imports(&mut buf);
+    emit_runtime_imports(&mut buf, uses_reactivity);
     emit_types(&mut buf);
     if has_each {
         emit_each_runtime_helpers(&mut buf);
@@ -57,10 +58,8 @@ pub fn generate_registry(
     emit_routes(&sorted_pages, &mut buf);
     emit_page_modules(&page_entries, &mut buf);
     emit_page_directive_helpers(page_directives, &page_module_aliases, &mut buf);
-    emit_route_helpers(&mut buf);
     emit_setup_directives(page_directives, &page_module_aliases, &mut buf);
-    emit_bootstrap(&mut buf);
-    emit_setup_components(&mut buf);
+    emit_bootstrap(&mut buf, uses_reactivity);
 
     buf.build()
 }
@@ -71,9 +70,20 @@ fn emit_header(buf: &mut TsBuffer) {
     buf.blank();
 }
 
-fn emit_runtime_imports(buf: &mut TsBuffer) {
-    buf.line("import { initRouter, navigate, effect } from \"@tinyfx/runtime\";");
-    buf.line("import type { TinyFxContext } from \"@tinyfx/runtime\";");
+fn emit_runtime_imports(buf: &mut TsBuffer, uses_reactivity: bool) {
+    buf.line("import {");
+    buf.indent();
+    buf.line("init,");
+    buf.line("registerComponent,");
+    buf.line("registerPage,");
+    buf.line("markMounted,");
+    buf.line("navigate,");
+    if uses_reactivity {
+        buf.line("effect,");
+    }
+    buf.dedent();
+    buf.line("} from \"@tinyfx/runtime\";");
+    buf.line("import type { TinyFxContext, RouteDef } from \"@tinyfx/runtime\";");
     buf.blank();
 }
 
@@ -96,7 +106,9 @@ fn emit_types(buf: &mut TsBuffer) {
 fn emit_each_runtime_helpers(buf: &mut TsBuffer) {
     buf.line("const __componentInstances = new WeakMap<HTMLElement, { destroy?: () => void }>();");
     buf.blank();
-    buf.line("function __registerInstance(el: HTMLElement, instance: { destroy?: () => void }): void {");
+    buf.line(
+        "function __registerInstance(el: HTMLElement, instance: { destroy?: () => void }): void {",
+    );
     buf.indent();
     buf.line("__componentInstances.set(el, instance);");
     buf.dedent();
@@ -121,10 +133,11 @@ fn emit_each_runtime_helpers(buf: &mut TsBuffer) {
 }
 
 fn emit_mount_component_helper(has_each: bool, buf: &mut TsBuffer) {
-    buf.line("function mountComponent(module: ComponentModule, el: HTMLElement, ctx: TinyFxContext) {");
+    buf.line(
+        "function mountComponent(module: ComponentModule, el: HTMLElement, ctx: TinyFxContext) {",
+    );
     buf.indent();
-    buf.line("if (el.dataset.tinyfxMounted === \"true\") return undefined;");
-    buf.line("el.dataset.tinyfxMounted = \"true\";");
+    buf.line("if (!markMounted(el)) return undefined;");
     buf.line("if (typeof module.mount === \"function\") {");
     buf.indent();
     buf.line("const inst = module.mount(el, ctx);");
@@ -213,21 +226,15 @@ fn emit_registry(
         wrapper::generate_component_wrapper(&spec, buf);
     }
 
-    if components.is_empty() {
-        buf.line("const registry: Record<string, (el: HTMLElement, ctx: TinyFxContext) => any> = {};");
-    } else {
-        buf.line("const registry: Record<string, (el: HTMLElement, ctx: TinyFxContext) => any> = {");
-        buf.indent();
-        for component in &components {
-            buf.line(&format!(
-                "\"{}\": (el, ctx) => __mount_{}(el, ctx),",
-                component.name, component.name
-            ));
-        }
-        buf.dedent();
-        buf.line("};");
+    for component in &components {
+        buf.line(&format!(
+            "registerComponent(\"{}\", (el, ctx) => __mount_{}(el, ctx));",
+            component.name, component.name
+        ));
     }
-    buf.blank();
+    if !components.is_empty() {
+        buf.blank();
+    }
 }
 
 fn emit_page_imports(imports: &[String], buf: &mut TsBuffer) {
@@ -240,33 +247,45 @@ fn emit_page_imports(imports: &[String], buf: &mut TsBuffer) {
 }
 
 fn emit_routes(pages: &[PageDef], buf: &mut TsBuffer) {
-    buf.line("const routes = {");
+    buf.line("const routes: Record<string, RouteDef> = {");
     buf.indent();
     for page in pages {
+        let (static_segments, param_names) = parse_route_pattern(&page.route);
         buf.line(&format!(
-            "\"{}\": {{ page: \"{}\", path: \"{}\" }},",
-            page.route, page.name, page.route
+            "\"{}\": {{ staticSegments: [{}], paramNames: [{}] }},",
+            page.route, static_segments, param_names
         ));
     }
     buf.dedent();
-    buf.line("} as const;");
+    buf.line("};");
     buf.blank();
 }
 
-fn emit_page_modules(entries: &[String], buf: &mut TsBuffer) {
+fn parse_route_pattern(route: &str) -> (String, String) {
+    let segments: Vec<&str> = route.split('/').filter(|s| !s.is_empty()).collect();
+    let mut static_parts = Vec::new();
+    let mut param_names = Vec::new();
+
+    for seg in segments {
+        if seg.starts_with(':') {
+            static_parts.push("null".to_string());
+            param_names.push(format!("\"{}\"", &seg[1..]));
+        } else {
+            static_parts.push(format!("\"{}\"", seg));
+        }
+    }
+
+    (static_parts.join(", "), param_names.join(", "))
+}
+
+fn emit_page_modules(entries: &[(String, String)], buf: &mut TsBuffer) {
     if entries.is_empty() {
-        buf.line("const pageModules: Record<string, PageModule> = {};");
-        buf.blank();
         return;
     }
 
-    buf.line("const pageModules: Record<string, PageModule> = {");
-    buf.indent();
-    for entry in entries {
-        buf.line(entry);
+    for (route, alias) in entries {
+        buf.line(&format!("registerPage(\"{}\", {});", route, alias));
     }
-    buf.dedent();
-    buf.line("};");
     buf.blank();
 }
 
@@ -312,76 +331,6 @@ fn emit_page_directive_helpers(
             buf,
         );
     }
-}
-
-fn emit_route_helpers(buf: &mut TsBuffer) {
-    buf.line("function matchesRoute(pattern: string, pathname: string): boolean {");
-    buf.indent();
-    buf.line("const patternParts = pattern.split(\"/\").filter(Boolean);");
-    buf.line("const pathParts = pathname.split(\"/\").filter(Boolean);");
-    buf.line("if (patternParts.length !== pathParts.length) return false;");
-    buf.line("for (let i = 0; i < patternParts.length; i++) {");
-    buf.indent();
-    buf.line("const segment = patternParts[i];");
-    buf.line("if (segment.startsWith(\":\")) continue;");
-    buf.line("if (segment !== pathParts[i]) return false;");
-    buf.dedent();
-    buf.line("}");
-    buf.line("return true;");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
-
-    buf.line("function extractParams(pattern: string, pathname: string): Record<string, string> {");
-    buf.indent();
-    buf.line("const patternParts = pattern.split(\"/\").filter(Boolean);");
-    buf.line("const pathParts = pathname.split(\"/\").filter(Boolean);");
-    buf.line("const params: Record<string, string> = {};");
-    buf.line("for (let i = 0; i < patternParts.length; i++) {");
-    buf.indent();
-    buf.line("const segment = patternParts[i];");
-    buf.line("if (!segment.startsWith(\":\")) continue;");
-    buf.line("const key = segment.slice(1);");
-    buf.line("params[key] = decodeURIComponent(pathParts[i] ?? \"\");");
-    buf.dedent();
-    buf.line("}");
-    buf.line("return params;");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
-
-    buf.line("function createContext(pattern: string): TinyFxContext {");
-    buf.indent();
-    buf.line("return { params: extractParams(pattern, window.location.pathname), navigate };");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
-
-    buf.line("function resolveCurrentPattern(pathname: string): string | null {");
-    buf.indent();
-    buf.line("for (const pattern of Object.keys(routes)) {");
-    buf.indent();
-    buf.line("if (matchesRoute(pattern, pathname)) return pattern;");
-    buf.dedent();
-    buf.line("}");
-    buf.line("return null;");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
-
-    buf.line("function runPageInit(pattern: string, ctx: TinyFxContext): void {");
-    buf.indent();
-    buf.line("const pathname = window.location.pathname;");
-    buf.line("if (!matchesRoute(pattern, pathname)) return;");
-    buf.line("const mod = pageModules[pattern];");
-    buf.line("if (typeof mod?.init === \"function\") {");
-    buf.indent();
-    buf.line("mod.init(document.body, ctx);");
-    buf.dedent();
-    buf.line("}");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
 }
 
 fn emit_setup_directives(
@@ -433,68 +382,21 @@ fn emit_setup_directives(
     buf.blank();
 }
 
-fn emit_bootstrap(buf: &mut TsBuffer) {
-    buf.line("initRouter(routes);");
-    buf.blank();
-    buf.line("let bootstrapped = false;");
-    buf.blank();
-    buf.line("export function bootstrapTinyFx(root: Document | HTMLElement = document) {");
-    buf.indent();
-    buf.line("if (bootstrapped) return [];");
-    buf.line("bootstrapped = true;");
-    buf.line("const pattern = resolveCurrentPattern(window.location.pathname) ?? \"/\";");
-    buf.line("const ctx = createContext(pattern);");
-    buf.line("const instances = setupComponents(ctx, root);");
-    buf.line("setupDirectives(ctx);");
-    buf.line("runPageInit(pattern, ctx);");
-    buf.line("return instances;");
-    buf.dedent();
-    buf.line("}");
-    buf.blank();
-
+fn emit_bootstrap(buf: &mut TsBuffer, _uses_reactivity: bool) {
     buf.line("if (typeof document !== \"undefined\") {");
     buf.indent();
     buf.line("if (document.readyState === \"loading\") {");
     buf.indent();
-    buf.line("document.addEventListener(\"DOMContentLoaded\", () => {");
-    buf.indent();
-    buf.line("bootstrapTinyFx();");
-    buf.dedent();
-    buf.line("}, { once: true });");
+    buf.line("document.addEventListener(\"DOMContentLoaded\", () => init({ routes, setupDirectives }), { once: true });");
     buf.dedent();
     buf.line("} else {");
     buf.indent();
-    buf.line("bootstrapTinyFx();");
+    buf.line("init({ routes, setupDirectives });");
     buf.dedent();
     buf.line("}");
     buf.dedent();
     buf.line("}");
     buf.blank();
-}
-
-fn emit_setup_components(buf: &mut TsBuffer) {
-    buf.line("export function setupComponents(");
-    buf.indent();
-    buf.line("ctx: TinyFxContext,");
-    buf.line("root: Document | HTMLElement = document,");
-    buf.dedent();
-    buf.line(") {");
-    buf.indent();
-    buf.line("const instances: any[] = [];");
-    buf.line("root.querySelectorAll(\"[data-component]\").forEach((el) => {");
-    buf.indent();
-    buf.line("const name = el.getAttribute(\"data-component\");");
-    buf.line("if (name && registry[name]) {");
-    buf.indent();
-    buf.line("const inst = registry[name](el as HTMLElement, ctx);");
-    buf.line("if (inst) instances.push(inst);");
-    buf.dedent();
-    buf.line("}");
-    buf.dedent();
-    buf.line("});");
-    buf.line("return instances;");
-    buf.dedent();
-    buf.line("}");
 }
 
 fn collect_dynamic_component_imports(
@@ -530,7 +432,7 @@ fn sorted_pages(pages: &[PageDef]) -> Vec<PageDef> {
 fn collect_page_modules(
     src_dir: &Path,
     pages: &[PageDef],
-) -> (Vec<String>, Vec<String>, HashMap<String, String>) {
+) -> (Vec<String>, Vec<(String, String)>, HashMap<String, String>) {
     let mut imports = Vec::new();
     let mut entries = Vec::new();
     let mut aliases = HashMap::new();
@@ -544,7 +446,7 @@ fn collect_page_modules(
                 alias,
                 relative_import(src_dir, &script_path.with_extension(""))
             ));
-            entries.push(format!("\"{}\": {},", page.route, alias));
+            entries.push((page.route.clone(), alias.clone()));
             aliases.insert(page.name.clone(), alias);
         }
     }
@@ -562,6 +464,49 @@ fn has_each_sites(
         || component_directives
             .iter()
             .any(|directive| !directive.each_sites.is_empty())
+}
+
+fn uses_reactivity(
+    page_directives: &[PageDirectives],
+    component_directives: &[ComponentDirectives],
+) -> bool {
+    let has_signal_each = page_directives.iter().any(|d| {
+        d.each_sites
+            .iter()
+            .any(|site| matches!(site.source, super::codegen::LoopSource::Signal(_)))
+    }) || component_directives.iter().any(|d| {
+        d.each_sites
+            .iter()
+            .any(|site| matches!(site.source, super::codegen::LoopSource::Signal(_)))
+    });
+
+    let has_signal_if = page_directives.iter().any(|d| {
+        d.if_sites.iter().any(|site| {
+            site.branches.iter().any(|branch| {
+                branch.is_signal
+                    || branch.condition.as_ref().is_some_and(|expr| {
+                        matches!(
+                            super::codegen::detect_value_kind(expr),
+                            super::codegen::ValueKind::Signal(_)
+                        )
+                    })
+            })
+        })
+    }) || component_directives.iter().any(|d| {
+        d.if_sites.iter().any(|site| {
+            site.branches.iter().any(|branch| {
+                branch.is_signal
+                    || branch.condition.as_ref().is_some_and(|expr| {
+                        matches!(
+                            super::codegen::detect_value_kind(expr),
+                            super::codegen::ValueKind::Signal(_)
+                        )
+                    })
+            })
+        })
+    });
+
+    has_signal_each || has_signal_if
 }
 
 fn infer_src_dir(
@@ -632,13 +577,109 @@ mod tests {
     #[test]
     fn empty_registry() {
         let result = generate_registry(&HashMap::new(), &[], &[], &[]);
-        assert!(result.contains("const registry"));
-        assert!(result.contains("setupComponents"));
-        assert!(result.contains("bootstrapTinyFx"));
-        assert!(result.contains("createContext"));
-        assert!(result.contains("import type { TinyFxContext }"));
+        assert!(result.contains("registerComponent"));
+        assert!(result.contains("registerPage"));
+        assert!(result.contains("markMounted"));
+        assert!(result.contains("import type { TinyFxContext, RouteDef }"));
         assert!(!result.contains("import * as"));
-        assert!(result.contains("initRouter"));
+        assert!(result.contains("init({ routes, setupDirectives })"));
+        assert!(result.contains("const routes: Record<string, RouteDef>"));
+        assert!(!result.contains("effect,"));
+    }
+
+    #[test]
+    fn effect_imported_when_signal_each_sites_exist() {
+        let directives = vec![PageDirectives {
+            page_name: "index".to_string(),
+            each_sites: vec![super::super::each::EachSite {
+                id: "index_each_0".to_string(),
+                source: super::super::codegen::LoopSource::Signal("items".to_string()),
+                item_var: "item".to_string(),
+                key_strategy: super::super::each::KeyStrategy::Index,
+                template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
+                has_dynamic_components: false,
+                dynamic_component_names: Vec::new(),
+            }],
+            if_sites: Vec::new(),
+        }];
+
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        assert!(result.contains("effect,"));
+        assert!(result.contains("effect(() => __reconcile_index_each_0"));
+        assert!(result.contains("init({ routes, setupDirectives })"));
+    }
+
+    #[test]
+    fn effect_imported_when_signal_if_sites_exist() {
+        use super::super::conditional::{IfBranch, IfSite};
+
+        let directives = vec![PageDirectives {
+            page_name: "index".to_string(),
+            each_sites: Vec::new(),
+            if_sites: vec![IfSite {
+                id: "index_if_0".to_string(),
+                branches: vec![IfBranch {
+                    condition: Some("isLoggedIn()".to_string()),
+                    is_signal: true,
+                    html: "<div></div>".to_string(),
+                    dynamic_component_names: Vec::new(),
+                }],
+            }],
+        }];
+
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        assert!(result.contains("effect,"));
+        assert!(result.contains("effect(() => __toggle_index_if_0"));
+    }
+
+    #[test]
+    fn effect_not_imported_for_plain_each_sites() {
+        let directives = vec![PageDirectives {
+            page_name: "index".to_string(),
+            each_sites: vec![super::super::each::EachSite {
+                id: "index_each_0".to_string(),
+                source: super::super::codegen::LoopSource::Plain("items".to_string()),
+                item_var: "item".to_string(),
+                key_strategy: super::super::each::KeyStrategy::Index,
+                template_html: "<div></div>".to_string(),
+                bindings: Vec::new(),
+                has_dynamic_components: false,
+                dynamic_component_names: Vec::new(),
+            }],
+            if_sites: Vec::new(),
+        }];
+
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        assert!(!result.contains("effect,"));
+        assert!(result.contains("__reconcile_index_each_0"));
+        assert!(!result.contains("effect(() => __reconcile_index_each_0"));
+        assert!(result.contains("init({ routes, setupDirectives })"));
+        assert!(!result.contains("init({ routes, setupDirectives, effect })"));
+    }
+
+    #[test]
+    fn effect_not_imported_for_plain_if_sites() {
+        use super::super::conditional::{IfBranch, IfSite};
+
+        let directives = vec![PageDirectives {
+            page_name: "index".to_string(),
+            each_sites: Vec::new(),
+            if_sites: vec![IfSite {
+                id: "index_if_0".to_string(),
+                branches: vec![IfBranch {
+                    condition: Some("true".to_string()),
+                    is_signal: false,
+                    html: "<div></div>".to_string(),
+                    dynamic_component_names: Vec::new(),
+                }],
+            }],
+        }];
+
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        assert!(!result.contains("effect,"));
+        assert!(result.contains("__toggle_index_if_0"));
+        assert!(!result.contains("effect(() => __toggle_index_if_0"));
     }
 
     #[test]
@@ -663,6 +704,28 @@ mod tests {
         assert!(result.contains("function __registerInstance"));
         assert!(!result.contains("destroyNode as __destroyNode"));
         assert!(!result.contains("registerInstance as __registerInstance"));
+    }
+
+    #[test]
+    fn mount_component_uses_mark_mounted() {
+        let result = generate_registry(&HashMap::new(), &[], &[], &[]);
+        assert!(result.contains("if (!markMounted(el)) return undefined;"));
+        assert!(!result.contains("dataset.tinyfxMounted"));
+    }
+
+    #[test]
+    fn routes_emit_pre_split_segments() {
+        let pages = vec![PageDef {
+            name: "blog".to_string(),
+            route: "/blog/:slug".to_string(),
+            html: String::new(),
+            source_path: std::path::PathBuf::from("src/pages/blog.html"),
+            out_path: std::path::PathBuf::from("dist/blog.html"),
+        }];
+
+        let result = generate_registry(&HashMap::new(), &pages, &[], &[]);
+        assert!(result.contains("staticSegments: [\"blog\", null]"));
+        assert!(result.contains("paramNames: [\"slug\"]"));
     }
 
     #[test]

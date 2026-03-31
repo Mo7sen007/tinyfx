@@ -15,13 +15,18 @@ The compiler performs most of the work before the browser runs application code:
 ## Runtime Scope
 The runtime exports:
 - `signal`, `effect`
+- `registerInstance`, `destroyNode`
 - `bindText`, `bindAttr`, `bindClass`
 - `createHttp`
-- `initRouter`, `getParam`, `navigate`, `goBack`
+- `getParam`, `getParams`, `navigate`, `goBack`
 - `onMount`, `onDestroy`
 - `TinyFxContext`
 - `RouteMap`, `RouteMeta`
-- `registerInstance`, `destroyNode`
+- `registerComponent`, `getComponentFactory`, `mountComponents`
+- `registerPage`, `getPageModule`, `runPageInit`
+- `markMounted`, `isMounted`
+- `matchPath`, `splitPath`, `RouteDef`
+- `init`
 
 ## What TinyFX Is Optimized For
 - HTML-first multi-page applications.

@@ -10,12 +10,12 @@ A component is static unless runtime behavior is explicitly enabled.
 </div>
 ```
 
-Static components are expanded at build time and do not mount runtime behavior.
+Static components are HTML-only. The compiler expands them at build time and they do not mount any runtime behavior. Do not create a `.ts` file for static components.
 
 ## Dynamic Components
 Dynamic behavior requires both:
-1. `tinyfx-dynamic` in component HTML.
-2. sibling same-name `.ts` file.
+1. `tinyfx-dynamic` on the root element in component HTML.
+2. A sibling same-name `.ts` file.
 
 ```html
 <!-- src/components/ThemeToggle/ThemeToggle.html -->
@@ -36,6 +36,10 @@ export class ThemeToggle {
       console.log("toggle");
     });
   }
+
+  destroy?(): void {
+    // cleanup
+  }
 }
 
 export function mount(el: HTMLElement, ctx: TinyFxContext) {
@@ -46,28 +50,30 @@ export function mount(el: HTMLElement, ctx: TinyFxContext) {
 ```
 
 Compiler enforcement:
-- `tinyfx-dynamic` and no `.ts` -> error.
-- `.ts` and no `tinyfx-dynamic` -> warning.
+- `tinyfx-dynamic` and no `.ts` → error.
+- `.ts` and no `tinyfx-dynamic` → warning.
 
 ## Generated Wrapper System
 For each dynamic component, the compiler generates `__mount_ComponentName` in `tinyfx.gen.ts`.
 
 Wrapper responsibilities:
-- call `mountComponent`.
-- guard with `if (!inst) return null;`.
-- wire component directive sites to instance fields.
-- return the instance.
+- Calls `mountComponent`.
+- Guards with `if (!inst) return null;`.
+- Wires component directive sites to instance fields.
+- Returns the instance.
 
 Important scope rule:
-- wrapper uses `el.querySelector(...)` for directive site lookup.
-- this avoids cross-instance interference when the same component appears multiple times.
+- Wrapper uses `el.querySelector(...)` for directive site lookup.
+- This avoids cross-instance interference when the same component appears multiple times.
 
 ## `<each>` Directive
 ```html
 <!-- src/components/Chat/Chat.html -->
-<each of="messages()" as="message" key="id" class="chat-list">
-  <ChatMessage content="{{message.content}}" />
-</each>
+<section class="chat" data-component="Chat" tinyfx-dynamic>
+  <each of="messages()" as="message" key="id" class="chat-list">
+    <ChatMessage content="{{message.content}}" />
+  </each>
+</section>
 ```
 
 Supported `of` forms:
@@ -82,9 +88,9 @@ Rules:
 - `key` must match a real field on each item.
 
 Compiler output:
-- replaces site with `data-each` container.
-- emits `__create_*`, `__update_*`, and `__reconcile_*`.
-- emits signal wiring via `effect()` for signal sources.
+- Replaces site with `data-each` container.
+- Emits `__create_*`, `__update_*`, and `__reconcile_*`.
+- Emits signal wiring via `effect()` for signal sources. Plain and range sources do not use `effect()`.
 
 Layout note:
 ```css
@@ -99,14 +105,16 @@ Use this when the generated wrapper affects flex/grid behavior.
 ## `<if>` Directive
 ```html
 <!-- src/components/AuthGate/AuthGate.html -->
-<if condition="isLoggedIn()">
-  <Dashboard />
-<else>
-  <Login />
-</if>
+<section class="auth" data-component="AuthGate" tinyfx-dynamic>
+  <if condition="isLoggedIn()">
+    <Dashboard />
+  <else>
+    <Login />
+  </if>
+</section>
 ```
 
-Also supports `<else-if>` chains. Branches are pre-rendered in HTML and runtime toggle helpers control visibility.
+Also supports `<else-if>` chains. Branches are pre-rendered in HTML and runtime toggle helpers control visibility. Signal-based conditions use `effect()` for reactivity; plain conditions do not.
 
 ## Public Field Requirement for Template Signals
 When a component template references `messages()` or another instance-backed expression in directives, the generated wiring reads through `inst.<field>()`.
@@ -121,6 +129,3 @@ export class Chat {
   public messages = signal<string[]>([]);
 }
 ```
-
-## Current Generator Note
-The component generator template currently inserts a `tinyfx-static` marker for non-dynamic generated component HTML. The compiler does not require that marker to treat a component as static.

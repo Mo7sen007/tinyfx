@@ -50,8 +50,11 @@ There are no index.ts barrel files. Always import the specific file directly.
 
 ## generate command
 Use tinyfx generate to create new files in the right locations:
-  tinyfx generate service AuthService   → src/lib/services/auth.service.ts
-  tinyfx generate model  Post           → src/lib/models/post.model.ts
-  tinyfx generate dto    Post           → src/lib/dto/post.dto.ts
-  tinyfx generate page   about          → src/pages/about.html
-  tinyfx generate component Card        → src/components/Card/
+  tinyfx generate component Card              → src/components/Card/
+  tinyfx generate component Card --dynamic    → src/components/Card/ + Card.ts
+  tinyfx generate page   about                → src/pages/about.html + about.ts
+  tinyfx generate service AuthService         → src/lib/services/auth-service.service.ts
+  tinyfx generate model  Post                 → src/lib/models/post.model.ts
+  tinyfx generate dto    Post                 → src/lib/dto/post.dto.ts
+
+Services use factory functions, not classes. Components with --dynamic require tinyfx-dynamic on the HTML root element.

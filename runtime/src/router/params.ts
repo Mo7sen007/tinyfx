@@ -4,42 +4,12 @@
 let currentParams: Record<string, string> = {};
 
 /**
- * Match `pattern` (e.g. "/blog/:slug") against `pathname` (e.g. "/blog/hello").
+ * Set resolved route params (called internally by init()).
  *
- * Returns true if they match, and stores any `:param` captures in the
- * module-level store so `getParam()` can retrieve them.
- *
- * Static segments must match exactly; `:param` segments match any non-empty
- * path segment.
- *
- * @param pattern - The route pattern produced by the compiler
- * @param pathname - The current browser pathname
- * @returns `true` when the pathname matches the pattern, otherwise `false`
- *
- * @example
- * resolveParams("/blog/:slug", "/blog/hello-world");
+ * @param params - The resolved URL parameters
  */
-export function resolveParams(pattern: string, pathname: string): boolean {
-  const patternParts = pattern.split("/").filter(Boolean);
-  const pathParts = pathname.split("/").filter(Boolean);
-
-  if (patternParts.length !== pathParts.length) return false;
-
-  const captured: Record<string, string> = {};
-
-  for (let i = 0; i < patternParts.length; i++) {
-    const seg = patternParts[i];
-    if (seg.startsWith(":")) {
-      // Dynamic segment — capture the value
-      captured[seg.slice(1)] = decodeURIComponent(pathParts[i]);
-    } else if (seg !== pathParts[i]) {
-      // Static segment mismatch
-      return false;
-    }
-  }
-
-  currentParams = captured;
-  return true;
+export function setParams(params: Record<string, string>): void {
+  currentParams = params;
 }
 
 /**

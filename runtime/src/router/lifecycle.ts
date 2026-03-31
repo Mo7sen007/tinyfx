@@ -46,7 +46,7 @@ export function onDestroy(fn: LifecycleCallback): void {
 
 /**
  * Trigger all registered `onMount` callbacks.
- * Called by `initRouter` after matching the current route.
+ * Called by `init()` after matching the current route.
  *
  * @returns Nothing
  *
@@ -65,7 +65,7 @@ export function flushMount(): void {
 
 /**
  * Wire up registered `onDestroy` callbacks to the `pagehide` event.
- * Called by `initRouter` after matching the current route.
+ * Called by `init()` after matching the current route.
  *
  * @returns Nothing
  *

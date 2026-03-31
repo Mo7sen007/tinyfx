@@ -6,42 +6,6 @@ type Subscriber = () => void;
 const effectStack: Subscriber[] = [];
 
 /**
- * Reactive value container used by TinyFX signals.
- *
- * Reading the value through {@link Signal.get} during an active effect records
- * that effect as a subscriber. Writing through {@link Signal.set} re-runs the
- * affected subscribers.
- *
- * @example
- * const count = new Signal(0);
- * console.log(count.get());
- * count.set(1);
- * console.log(count.get());
- */
-export class Signal<T> {
-  private value: T;
-  private subs = new Set<Subscriber>();
-
-  constructor(v: T) {
-    this.value = v;
-  }
-
-  get(): T {
-    const running = effectStack[effectStack.length - 1];
-    if (running) {
-      this.subs.add(running);
-    }
-    return this.value;
-  }
-
-  set(v: T) {
-    if (Object.is(v, this.value)) return;
-    this.value = v;
-    this.subs.forEach((fn) => fn());
-  }
-}
-
-/**
  * Creates a reactive signal function.
  *
  * @param v - The initial value stored by the signal
@@ -54,9 +18,21 @@ export class Signal<T> {
  * count.set(1);
  */
 export function signal<T>(v: T) {
-  const s = new Signal(v);
-  const fn = () => s.get();
-  fn.set = (v: T) => s.set(v);
+  let value = v;
+  const subs = new Set<Subscriber>();
+
+  const fn = () => {
+    const running = effectStack[effectStack.length - 1];
+    if (running) subs.add(running);
+    return value;
+  };
+
+  fn.set = (next: T) => {
+    if (Object.is(next, value)) return;
+    value = next;
+    subs.forEach((s) => s());
+  };
+
   return fn as (() => T) & { set(v: T): void };
 }
 

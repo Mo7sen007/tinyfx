@@ -1,18 +1,12 @@
-// Button component (class-based)
+// Button component
 
-import { signal } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
 export class Button {
   constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
-  public clicks = signal(0);
 
   init(): void {
     console.log("Button mounted", this.el);
-    this.el.addEventListener("click", () => {
-      this.clicks.set(this.clicks() + 1);
-      console.log("Button clicked", this.clicks());
-    });
   }
 
   destroy?(): void {

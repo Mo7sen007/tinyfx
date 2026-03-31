@@ -27,7 +27,7 @@ export class ThemeToggle {
     });
   }
 
-  destroy(): void {
+  destroy?(): void {
     // no-op: listeners bound to this.el will be cleaned up when element is removed
   }
 }

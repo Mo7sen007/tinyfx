@@ -1,6 +1,6 @@
 {
   "name": "@tinyfx/runtime",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Minimal frontend runtime — signals, DOM helpers, typed HTTP, DTO mapping",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,10 +17,14 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "typescript": "^5.9.3"
+    "@vitest/coverage-v8": "^4.1.2",
+    "jsdom": "^29.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
   },
   "license": "MIT"
 }

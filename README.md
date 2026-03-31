@@ -1,7 +1,7 @@
 # TinyFX
 
 ## What TinyFX Is
-TinyFX is a hybrid web framework with a Rust CLI compiler and a TypeScript runtime. It targets Go developers and developers who want structured TypeScript tooling with server-rendered HTML output, direct DOM control, and low client-side overhead.
+TinyFX is a hybrid web framework with a Rust CLI compiler and a TypeScript runtime. It targets developers who want structured TypeScript tooling with server-rendered HTML output, direct DOM control, and low client-side overhead.
 
 The compiler performs component expansion, page processing, directive transformation, glue generation, and bundling orchestration. The runtime provides the browser primitives that remain necessary after compile time.
 
@@ -28,13 +28,18 @@ The build phases in `compiler/src/build/mod.rs`:
 
 Runtime exports in `runtime/src/index.ts`:
 - `signal`, `effect`
+- `registerInstance`, `destroyNode`
 - `bindText`, `bindAttr`, `bindClass`
 - `createHttp`
-- `initRouter`, `getParam`, `navigate`, `goBack`
+- `getParam`, `getParams`, `navigate`, `goBack`
 - `onMount`, `onDestroy`
 - `TinyFxContext`
 - `RouteMap`, `RouteMeta`
-- `registerInstance`, `destroyNode`
+- `registerComponent`, `getComponentFactory`, `mountComponents`
+- `registerPage`, `getPageModule`, `runPageInit`
+- `markMounted`, `isMounted`
+- `matchPath`, `splitPath`, `RouteDef`
+- `init`
 
 ## Getting Started
 ```bash
@@ -69,6 +74,7 @@ my-app/
     │   ├── models/
     │   ├── services/
     │   └── state/
+    │       ├── app.state.ts
     │       └── theme.state.ts
     └── styles/
         └── main.css
@@ -93,17 +99,15 @@ Pages live in `src/pages/` and must use a `<page>` root.
 import { onMount } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
 
-export function init(el: HTMLElement, ctx: TinyFxContext): void {
+export function init(_el: HTMLElement, _ctx: TinyFxContext): void {
   onMount(() => {
-    console.log("about mounted", el, ctx.params);
+    console.log("about mounted");
   });
 }
 ```
 
 ### Static Components
-Static is the default behavior. The compiler expands static components at build time into plain HTML.
-
-Note: current `tinyfx generate component <Name>` template still emits a `tinyfx-static` marker for non-dynamic generated components. The compiler does not require that marker to treat a component as static.
+Static is the default behavior. The compiler expands static components at build time into plain HTML. Static components are HTML-only — no `.ts` file is needed.
 
 ```html
 <!-- src/components/FeatureCard/FeatureCard.html -->
@@ -117,7 +121,7 @@ Note: current `tinyfx generate component <Name>` template still emits a `tinyfx-
 ```
 
 ### Dynamic Components
-Dynamic components opt in with `tinyfx-dynamic` and a sibling `.ts` file.
+Dynamic components opt in with `tinyfx-dynamic` on the root element and a sibling same-name `.ts` file.
 
 ```html
 <!-- src/components/ThemeToggle/ThemeToggle.html -->
@@ -130,21 +134,31 @@ Dynamic components opt in with `tinyfx-dynamic` and a sibling `.ts` file.
 // src/components/ThemeToggle/ThemeToggle.ts
 import { effect } from "@tinyfx/runtime";
 import type { TinyFxContext } from "@tinyfx/runtime";
+import { theme } from "@state/theme.state";
 
 export class ThemeToggle {
+  private icon: HTMLElement | null = null;
+
   constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
 
   init(): void {
+    this.icon = this.el.querySelector("i");
+
     effect(() => {
-      console.log("theme effect", this.el.dataset.theme);
+      const isDark = theme() === "dark";
+      if (this.icon) {
+        this.icon.className = isDark ? "fa-solid fa-sun" : "fa-solid fa-moon";
+      }
     });
 
     this.el.addEventListener("click", () => {
-      console.log("toggle");
+      theme.set(theme() === "dark" ? "light" : "dark");
     });
   }
 
-  destroy(): void {}
+  destroy?(): void {
+    // cleanup
+  }
 }
 
 export function mount(el: HTMLElement, ctx: TinyFxContext) {
@@ -172,9 +186,11 @@ export const messages = signal<{ id: number; content: string }[]>([]);
 
 ```html
 <!-- src/components/Chat/Chat.html -->
-<each of="posts()" as="post" key="id" class="feed">
-  <PostCard title="{{post.title}}" />
-</each>
+<section class="chat" data-component="Chat" tinyfx-dynamic>
+  <each of="messages()" as="message" key="id">
+    <PostCard title="{{message.title}}" />
+  </each>
+</section>
 ```
 
 Supported `of` forms:
@@ -187,7 +203,7 @@ Compiler behavior:
 - Replaces the directive site with a container: `<div data-each="SITE_ID" ...></div>`.
 - Preserves non-control attributes from `<each>` on the generated wrapper.
 - Generates `__create_*`, `__update_*`, and `__reconcile_*` functions.
-- Wires reconciliation via `effect()` for signal sources.
+- Wires reconciliation via `effect()` for signal sources. Plain and range sources do not use `effect()`.
 
 Generated updates use targeted DOM operations rather than subtree replacement:
 
@@ -211,17 +227,18 @@ Layout note:
 
 ```html
 <!-- src/components/AuthGate/AuthGate.html -->
-<if condition="isLoggedIn()">
-  <Dashboard />
-<else>
-  <Login />
-</if>
+<section class="auth" data-component="AuthGate" tinyfx-dynamic>
+  <if condition="isLoggedIn()">
+    <Dashboard />
+  <else>
+    <Login />
+  </if>
+</section>
 ```
 
 Supports chains:
 
 ```html
-<!-- src/components/AuthGate/AuthGate.html -->
 <if condition="isAdmin()">
   <AdminPanel />
 <else-if condition="isLoggedIn()">
@@ -235,6 +252,22 @@ Compiler behavior:
 - Pre-renders all branches into HTML.
 - Wraps each branch with `data-branch` and initial `hidden` state.
 - Generates a `__toggle_*` function to show the active branch.
+- Signal-based conditions use `effect()` for reactivity; plain conditions do not.
+
+### Bootstrap
+The generated `tinyfx.gen.ts` calls `init()` automatically on page load. You do not need to call it yourself.
+
+```ts
+// src/tinyfx.gen.ts (generated)
+init({ routes, setupDirectives });
+```
+
+The `init()` function:
+1. Matches the current URL path against registered routes.
+2. Initializes lifecycle hooks (`onMount`, `onDestroy`).
+3. Sets route params.
+4. Mounts all dynamic components in the page.
+5. Runs page-level `init()` if present.
 
 ### Component Wrapper System
 For each dynamic component, TinyFX generates a wrapper in `tinyfx.gen.ts`.
@@ -247,7 +280,7 @@ function __mount_Chat(el: HTMLElement, ctx: TinyFxContext): any {
 
   const __each_chat_each_0 = el.querySelector<HTMLElement>("[data-each='chat_each_0']");
   if (__each_chat_each_0) {
-    effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), inst));
+    effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx));
   }
 
   return inst;
@@ -304,15 +337,10 @@ import { User } from "@models/user.model";
 import type { UserDto } from "@dto/user.dto";
 import { currentUser } from "@state/app.state";
 import { createUserService } from "@services/user.service";
-
-void User;
-void currentUser;
-void createUserService;
-void ({} as UserDto);
 ```
 
 ### Services
-Service code follows factory functions.
+Services use factory functions, not classes.
 
 ```ts
 // src/lib/services/user.service.ts
@@ -330,6 +358,8 @@ export function createUserService() {
     },
   };
 }
+
+export type UserService = ReturnType<typeof createUserService>;
 ```
 
 No DI container is used by runtime or compiler for services.
@@ -341,7 +371,6 @@ No DI container is used by runtime or compiler for services.
 <section class="chat" data-component="Chat" tinyfx-dynamic>
   <div class="container">
     <header>
-      <div id="health-status" class="status-dot"></div>
       <h1>Global Chat!</h1>
     </header>
 
@@ -398,12 +427,6 @@ export class Chat {
 
   init(): void {
     this.el
-      .querySelector<HTMLInputElement>("#username")
-      ?.addEventListener("input", (event) => {
-        this.currentUsername.set((event.target as HTMLInputElement).value);
-      });
-
-    this.el
       .querySelector<HTMLButtonElement>("#send-btn")
       ?.addEventListener("click", () => {
         void this.sendMessage();
@@ -415,7 +438,7 @@ export class Chat {
     }, 5000);
   }
 
-  destroy(): void {
+  destroy?(): void {
     if (this.pollInterval) {
       clearInterval(this.pollInterval);
     }
@@ -462,7 +485,7 @@ export function mount(el: HTMLElement, ctx: TinyFxContext) {
 
 ### `tinyfx init`
 ```bash
-tinyfx init <name> [--force]
+tinyfx init <name>
 ```
 Creates a new TinyFX project directory from compiler templates.
 
@@ -480,12 +503,12 @@ Runs initial build, starts HTTP server, WebSocket reload server, and file watche
 
 ### `tinyfx generate` (`tinyfx g`)
 ```bash
-tinyfx generate component <Name> [--dynamic] [--force]
-tinyfx generate page <name> [--force]
-tinyfx generate service <Name> [--force]
-tinyfx generate model <Name> [--force]
-tinyfx generate dto <Name> [--force]
-tinyfx generate interface <Name> [--force]
+tinyfx generate component <Name> [--dynamic]
+tinyfx generate page <name>
+tinyfx generate service <Name>
+tinyfx generate model <Name>
+tinyfx generate dto <Name>
+tinyfx generate interface <Name>
 ```
 
 Aliases in CLI:
@@ -559,6 +582,8 @@ Static components carry no runtime mount behavior. Dynamic behavior is opt-in pe
 | `<if>` / `<else>` directive | ✅ Implemented |
 | Component wrapper system | ✅ Implemented |
 | Dev server with live reload | ✅ Implemented |
+| Dynamic component/page registries | ✅ Implemented |
+| Conditional reactivity imports | ✅ Implemented |
 | Soft router | 📋 Planned |
 | Class-to-closure transformation | 📋 Planned |
 | Lazy component loading | 📋 Planned |

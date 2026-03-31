@@ -1,64 +1,52 @@
 /**
- * Error thrown for non-success HTTP responses.
+ * Discriminated union type for HTTP errors.
  *
  * @example
  * try {
  *   await http.get("/posts");
  * } catch (error) {
- *   if (error instanceof HttpError) {
+ *   if (error.kind === "http") {
  *     console.error(error.status, error.url);
- *   }
- * }
- */
-export class HttpError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly statusText: string,
-    public readonly url: string,
-    public readonly method: string,
-    public readonly response?: Response
-  ) {
-    super(`HTTP ${status} ${statusText}: ${method} ${url}`);
-    this.name = "HttpError";
-  }
-}
-
-/**
- * Error thrown when a request times out.
- *
- * @example
- * try {
- *   await http.get("/slow", { timeout: 100 });
- * } catch (error) {
- *   if (error instanceof HttpTimeoutError) {
+ *   } else if (error.kind === "timeout") {
  *     console.error(error.timeout);
- *   }
- * }
- */
-export class HttpTimeoutError extends Error {
-  constructor(public readonly url: string, public readonly timeout: number) {
-    super(`Request timeout after ${timeout}ms: ${url}`);
-    this.name = "HttpTimeoutError";
-  }
-}
-
-/**
- * Error thrown when a JSON response cannot be parsed.
- *
- * @example
- * try {
- *   await http.get("/broken-json");
- * } catch (error) {
- *   if (error instanceof HttpParseError) {
+ *   } else if (error.kind === "parse") {
  *     console.error(error.url);
  *   }
  * }
  */
-export class HttpParseError extends Error {
-  constructor(message: string, public readonly url: string) {
-    super(message);
-    this.name = "HttpParseError";
-  }
+export type HttpError =
+  | { kind: "http"; status: number; statusText: string; url: string; method: string; response?: Response }
+  | { kind: "timeout"; url: string; timeout: number }
+  | { kind: "parse"; message: string; url: string };
+
+export function httpError(
+  status: number,
+  statusText: string,
+  url: string,
+  method: string,
+  response?: Response,
+): HttpError {
+  return { kind: "http", status, statusText, url, method, response };
+}
+
+export function timeoutError(url: string, timeout: number): HttpError {
+  return { kind: "timeout", url, timeout };
+}
+
+export function parseError(message: string, url: string): HttpError {
+  return { kind: "parse", message, url };
+}
+
+export function isHttpError(err: unknown): err is Extract<HttpError, { kind: "http" }> {
+  return typeof err === "object" && err !== null && "kind" in err && err.kind === "http";
+}
+
+export function isTimeoutError(err: unknown): err is Extract<HttpError, { kind: "timeout" }> {
+  return typeof err === "object" && err !== null && "kind" in err && err.kind === "timeout";
+}
+
+export function isParseError(err: unknown): err is Extract<HttpError, { kind: "parse" }> {
+  return typeof err === "object" && err !== null && "kind" in err && err.kind === "parse";
 }
 
 /**

@@ -4,8 +4,8 @@ TinyFX currently implements file-based hard routing.
 
 ## Hard Routing Model
 - Pages compile to real HTML files in `dist/`.
-- Navigation uses browser page loads.
-- Generated glue initializes route helpers on load.
+- Navigation uses real browser page loads (`window.location.href`).
+- Generated glue initializes everything through a single `init()` call.
 
 Soft routing is planned and not currently implemented.
 
@@ -13,7 +13,7 @@ Soft routing is planned and not currently implemented.
 Pages live in `src/pages/` with `<page>` root.
 
 ```html
-<!-- src/pages/blog/[slug].html (example naming style) -->
+<!-- src/pages/blog.html -->
 <page route="/blog/:slug" layout="">
   <main>
     <h1>Blog</h1>
@@ -21,33 +21,34 @@ Pages live in `src/pages/` with `<page>` root.
 </page>
 ```
 
-If `route` is omitted, route is derived from page path.
-
-## Runtime Routing Helpers
-From `@tinyfx/runtime`:
-- `initRouter`
-- `getParam`
-- `navigate`
-- `goBack`
-- `onMount`
-- `onDestroy`
-
 ```ts
 // src/pages/blog.ts
-import { getParam, onMount } from "@tinyfx/runtime";
+import { onMount } from "@tinyfx/runtime";
+import type { TinyFxContext } from "@tinyfx/runtime";
 
-export function init(el: HTMLElement): void {
+export function init(_el: HTMLElement, ctx: TinyFxContext): void {
   onMount(() => {
-    console.log("slug", getParam("slug"));
-    void el;
+    console.log("slug", ctx.params.slug);
   });
 }
 ```
 
+If `route` is omitted, the route is derived from the page file path.
+
+## Runtime Routing Helpers
+From `@tinyfx/runtime`:
+- `getParam(name)` — get a single route parameter.
+- `getParams()` — get all route parameters.
+- `navigate(path)` — trigger a full browser navigation.
+- `goBack()` — go back one step in browser history.
+- `onMount(fn)` — register a mount callback.
+- `onDestroy(fn)` — register a destroy callback.
+
 ## Generated Glue Responsibilities
 `tinyfx.gen.ts` generates and uses:
-- route table
-- route matching helpers
-- param extraction
-- page module registry
-- bootstrap call (`initRouter(routes)` + page init)
+- Route table with pre-split static segments and param names (`RouteDef`).
+- Page module registration via `registerPage()`.
+- Component registration via `registerComponent()`.
+- Bootstrap through `init({ routes, setupDirectives })`.
+
+The `init()` function replaces the old `initRouter()` API. It handles route matching, param extraction, component mounting, and page initialization in a single call.
