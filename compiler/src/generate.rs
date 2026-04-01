@@ -275,18 +275,12 @@ fn render_template(path: &str, names: &NameSet) -> Result<String> {
 
 fn render_component_template(path: &str, names: &NameSet, dynamic: bool) -> Result<String> {
     let template = read_template(path)?;
+    let root_marker = if dynamic { " tinyfx-dynamic" } else { "" };
     Ok(template
         .replace("{{Name}}", &names.pascal)
         .replace("{{name}}", &names.kebab)
         .replace("{{camelName}}", &names.camel)
-        .replace(
-            "{{type}}",
-            if dynamic {
-                "tinyfx-dynamic"
-            } else {
-                "tinyfx-static"
-            },
-        ))
+        .replace("{{rootMarker}}", root_marker))
 }
 
 fn write_file(path: &Path, content: &str, force: bool) -> Result<()> {

@@ -25,13 +25,20 @@ pub fn generate_each_code(site: &EachSite, context: &DirectiveContext, buf: &mut
 /// extracted template binding. Binding fields are stable DOM references used
 /// by `__update_*` without additional selector lookups.
 pub fn generate_each_node_record(site: &EachSite, _context: &DirectiveContext, buf: &mut TsBuffer) {
-    buf.line(&format!("// <each> site {} source=\"{}\"", site.id, source_expression(site)));
+    buf.line(&format!(
+        "// <each> site {} source=\"{}\"",
+        site.id,
+        source_expression(site)
+    ));
     buf.line(&format!("interface NodeRecord_{} {{", site.id));
     buf.indent();
     buf.line("el: HTMLElement;");
     buf.line("key: string;");
     for binding in &site.bindings {
-        buf.line(&format!("{}: HTMLElement;", binding_field_name(&binding.field)));
+        buf.line(&format!(
+            "{}: HTMLElement;",
+            binding_field_name(&binding.field)
+        ));
     }
     buf.dedent();
     buf.line("}");
@@ -272,14 +279,20 @@ fn generate_reconcile_fn(site: &EachSite, buf: &mut TsBuffer) {
     buf.line(&format!("const existing = __nodes_{}.get(key);", site.id));
     buf.line("if (existing) {");
     buf.indent();
-    buf.line(&format!("__update_{}({}, existing);", site.id, site.item_var));
+    buf.line(&format!(
+        "__update_{}({}, existing);",
+        site.id, site.item_var
+    ));
     buf.line("next.push(existing);");
     buf.dedent();
     buf.line("} else {");
     buf.indent();
     match site.key_strategy {
         KeyStrategy::Keyed { .. } => {
-            buf.line(&format!("const record = __create_{}({});", site.id, site.item_var));
+            buf.line(&format!(
+                "const record = __create_{}({});",
+                site.id, site.item_var
+            ));
         }
         KeyStrategy::Index => {
             buf.line(&format!(
@@ -298,7 +311,10 @@ fn generate_reconcile_fn(site: &EachSite, buf: &mut TsBuffer) {
 
     buf.line("// Phase 2: remove stale nodes");
     buf.line("const nextKeys = new Set(next.map((record) => record.key));");
-    buf.line(&format!("for (const [key, record] of __nodes_{}) {{", site.id));
+    buf.line(&format!(
+        "for (const [key, record] of __nodes_{}) {{",
+        site.id
+    ));
     buf.indent();
     buf.line("if (!nextKeys.has(key)) {");
     buf.indent();
@@ -442,7 +458,9 @@ mod tests {
         let mut buf = TsBuffer::new();
         generate_each_helpers(&site, &DirectiveContext::Component, &mut buf);
         let code = buf.build();
-        assert!(code.contains("function __create_index_each_0(item: any, __idx: number): NodeRecord_index_each_0"));
+        assert!(code.contains(
+            "function __create_index_each_0(item: any, __idx: number): NodeRecord_index_each_0"
+        ));
         assert!(code.contains("el.dataset.key = String(__idx);"));
     }
 
@@ -452,7 +470,13 @@ mod tests {
             field_name: "id".to_string(),
         });
         let mut buf = TsBuffer::new();
-        generate_each_helpers(&site, &DirectiveContext::Page { module_alias: "PageModule0".to_string() }, &mut buf);
+        generate_each_helpers(
+            &site,
+            &DirectiveContext::Page {
+                module_alias: "PageModule0".to_string(),
+            },
+            &mut buf,
+        );
         let code = buf.build();
         assert!(code.contains("function __reconcile_index_each_0(container: HTMLElement, items: any[], ctx: TinyFxContext): void"));
     }
@@ -516,7 +540,9 @@ mod tests {
         generate_each_helpers(&site, &DirectiveContext::Component, &mut buf);
         let code = buf.build();
 
-        assert!(code.contains("el.matches(__sel_own) ? el : el.querySelector<HTMLElement>(__sel_own)"));
+        assert!(
+            code.contains("el.matches(__sel_own) ? el : el.querySelector<HTMLElement>(__sel_own)")
+        );
     }
 
     #[test]
@@ -527,7 +553,9 @@ mod tests {
         let code = buf.build();
 
         assert!(!code.contains("as NodeRecord_index_each_0"));
-        assert!(code.contains("if (!el) throw new Error(\"tinyfx <each> create failed for site index_each_0\")"));
+        assert!(code.contains(
+            "if (!el) throw new Error(\"tinyfx <each> create failed for site index_each_0\")"
+        ));
     }
 
     #[test]

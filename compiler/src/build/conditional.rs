@@ -22,7 +22,9 @@ use regex::Regex;
 use super::codegen::{detect_value_kind, site_id};
 use super::component::{CompiledComponent, expand_component_tags};
 use super::each::find_tag_span;
-use super::pages_util::{filter_non_directive_attrs, serialize_attrs_to_html};
+use super::pages_util::{
+    filter_non_directive_attrs, parse_attrs as parse_attrs_payload, serialize_attrs_to_html,
+};
 
 /// One branch in a parsed `<if>` site.
 #[derive(Debug, Clone)]
@@ -194,18 +196,18 @@ fn next_branch_marker(input: &str, from: usize) -> Option<(usize, usize, String)
 }
 
 fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
-    let mut attrs = HashMap::new();
-    for cap in attr_re().captures_iter(open_tag) {
-        let key = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-        let val = cap
-            .get(2)
-            .or_else(|| cap.get(3))
-            .or_else(|| cap.get(4))
-            .map(|m| m.as_str())
-            .unwrap_or_default();
-        attrs.insert(key.to_string(), val.to_string());
+    let mut input = open_tag.trim();
+    if input.starts_with("<else-if") {
+        input = input.trim_start_matches("<else-if");
+    } else if input.starts_with("<if") {
+        input = input.trim_start_matches("<if");
     }
-    Ok(attrs)
+    input = input.trim_end_matches('>').trim();
+    if input.ends_with('/') {
+        input = input[..input.len().saturating_sub(1)].trim_end();
+    }
+
+    Ok(parse_attrs_payload(input))
 }
 
 fn collect_dynamic_names(html: &str) -> Vec<String> {
@@ -221,14 +223,6 @@ fn collect_dynamic_names(html: &str) -> Vec<String> {
         }
     }
     out
-}
-
-fn attr_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r#"([:@a-zA-Z0-9_-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"#)
-            .expect("valid attr regex")
-    })
 }
 
 fn data_component_re() -> &'static Regex {
@@ -299,9 +293,9 @@ mod tests {
 
     #[test]
     fn parse_if_preserves_wrapper_attributes() {
-        let html =
-            "<if condition=\"ready\" class=\"auth\" id=\"gate\" aria-live=\"polite\"><h1>a</h1></if>";
-        let (out, _) = parse_if_blocks(html, "index", &registry()).expect("if parse should succeed");
+        let html = "<if condition=\"ready\" class=\"auth\" id=\"gate\" aria-live=\"polite\"><h1>a</h1></if>";
+        let (out, _) =
+            parse_if_blocks(html, "index", &registry()).expect("if parse should succeed");
         assert!(out.contains("data-if=\"index_if_0\""));
         assert!(out.contains("class=\"auth\""));
         assert!(out.contains("id=\"gate\""));
@@ -311,7 +305,8 @@ mod tests {
     #[test]
     fn parse_if_strips_control_condition_attribute() {
         let html = "<if condition=\"ready\" class=\"auth\"><h1>a</h1></if>";
-        let (out, _) = parse_if_blocks(html, "index", &registry()).expect("if parse should succeed");
+        let (out, _) =
+            parse_if_blocks(html, "index", &registry()).expect("if parse should succeed");
         assert!(out.contains("class=\"auth\""));
         assert!(!out.contains("condition=\"ready\""));
     }

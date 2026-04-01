@@ -41,16 +41,18 @@ pub fn generate_registry(
     let (page_imports, page_entries, page_module_aliases) =
         collect_page_modules(&src_dir, &sorted_pages);
     let has_each = has_each_sites(page_directives, component_directives);
+    let has_dynamic_components = component_registry.values().any(|c| c.is_dynamic);
+    let has_instance_tracking = has_each || has_dynamic_components;
     let uses_reactivity = uses_reactivity(page_directives, component_directives);
 
     let mut buf = TsBuffer::new();
     emit_header(&mut buf);
     emit_runtime_imports(&mut buf, uses_reactivity);
     emit_types(&mut buf);
-    if has_each {
+    if has_instance_tracking {
         emit_each_runtime_helpers(&mut buf);
     }
-    emit_mount_component_helper(has_each, &mut buf);
+    emit_mount_component_helper(has_instance_tracking, &mut buf);
     emit_component_imports(&component_imports, &mut buf);
     emit_component_directive_helpers(component_directives, &mut buf);
     emit_registry(component_registry, component_directives, &mut buf);
@@ -132,7 +134,7 @@ fn emit_each_runtime_helpers(buf: &mut TsBuffer) {
     buf.blank();
 }
 
-fn emit_mount_component_helper(has_each: bool, buf: &mut TsBuffer) {
+fn emit_mount_component_helper(has_instance_tracking: bool, buf: &mut TsBuffer) {
     buf.line(
         "function mountComponent(module: ComponentModule, el: HTMLElement, ctx: TinyFxContext) {",
     );
@@ -141,7 +143,7 @@ fn emit_mount_component_helper(has_each: bool, buf: &mut TsBuffer) {
     buf.line("if (typeof module.mount === \"function\") {");
     buf.indent();
     buf.line("const inst = module.mount(el, ctx);");
-    if has_each {
+    if has_instance_tracking {
         buf.line("if (inst && typeof inst === \"object\") {");
         buf.indent();
         buf.line("__registerInstance(el, inst as { destroy?: () => void });");
@@ -481,29 +483,13 @@ fn uses_reactivity(
     });
 
     let has_signal_if = page_directives.iter().any(|d| {
-        d.if_sites.iter().any(|site| {
-            site.branches.iter().any(|branch| {
-                branch.is_signal
-                    || branch.condition.as_ref().is_some_and(|expr| {
-                        matches!(
-                            super::codegen::detect_value_kind(expr),
-                            super::codegen::ValueKind::Signal(_)
-                        )
-                    })
-            })
-        })
+        d.if_sites
+            .iter()
+            .any(|site| site.branches.iter().any(|branch| branch.is_signal))
     }) || component_directives.iter().any(|d| {
-        d.if_sites.iter().any(|site| {
-            site.branches.iter().any(|branch| {
-                branch.is_signal
-                    || branch.condition.as_ref().is_some_and(|expr| {
-                        matches!(
-                            super::codegen::detect_value_kind(expr),
-                            super::codegen::ValueKind::Signal(_)
-                        )
-                    })
-            })
-        })
+        d.if_sites
+            .iter()
+            .any(|site| site.branches.iter().any(|branch| branch.is_signal))
     });
 
     has_signal_each || has_signal_if

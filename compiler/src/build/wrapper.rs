@@ -203,7 +203,9 @@ mod tests {
             if_sites: Vec::new(),
         });
 
-        assert!(code.contains("effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx));"));
+        assert!(code.contains(
+            "effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx));"
+        ));
         assert!(!code.contains("__reconcile_chat_each_0(__each_chat_each_0, messages()"));
     }
 
@@ -279,7 +281,9 @@ mod tests {
         let each_idx = code
             .find("__reconcile_chat_each_0")
             .expect("each wiring should exist");
-        let if_idx = code.find("__toggle_chat_if_0").expect("if wiring should exist");
+        let if_idx = code
+            .find("__toggle_chat_if_0")
+            .expect("if wiring should exist");
         assert!(each_idx < if_idx);
     }
 

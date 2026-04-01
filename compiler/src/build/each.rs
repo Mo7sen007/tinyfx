@@ -18,7 +18,10 @@ use regex::Regex;
 use super::codegen::{LoopSource, parse_loop_source, site_id};
 use super::component::{CompiledComponent, expand_component_tags};
 use super::dependency_graph::collect_component_references;
-use super::pages_util::{filter_non_directive_attrs, serialize_attrs_to_html};
+use super::pages_util::{
+    filter_non_directive_attrs, parse_attrs as parse_attrs_payload,
+    parse_attrs_ordered as parse_attrs_ordered_payload, serialize_attrs_to_html,
+};
 
 /// Determines how list items are identified for reconciliation.
 ///
@@ -431,14 +434,9 @@ fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<Templat
         };
         let selector = current_selector(&stack, &ctx);
 
-        for cap in attr_re().captures_iter(attrs_src) {
-            let attr_name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-            let attr_value = cap
-                .get(2)
-                .or_else(|| cap.get(3))
-                .or_else(|| cap.get(4))
-                .map(|m| m.as_str())
-                .unwrap_or_default();
+        for (attr_name, attr_value) in parse_attrs_ordered_payload(attrs_src) {
+            let attr_name = attr_name.as_str();
+            let attr_value = attr_value.as_str();
 
             for field in extract_binding_fields(attr_value, item_var) {
                 if seen_fields.iter().any(|existing| existing == &field) {
@@ -542,23 +540,12 @@ fn selector_segment(ctx: &ElementCtx) -> String {
 }
 
 fn attr_value(attrs: &str, name: &str) -> Option<String> {
-    for cap in attr_re().captures_iter(attrs) {
-        let key = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-        if key != name {
-            continue;
-        }
-        let val = cap
-            .get(2)
-            .or_else(|| cap.get(3))
-            .or_else(|| cap.get(4))
-            .map(|m| m.as_str())
-            .unwrap_or_default()
-            .trim();
-        if !val.is_empty() {
-            return Some(val.to_string());
-        }
-    }
-    None
+    parse_attrs_ordered_payload(attrs)
+        .into_iter()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value)
+        .map(|val| val.trim().to_string())
+        .filter(|val| !val.is_empty())
 }
 
 fn first_class_from_attrs(attrs: &str) -> Option<String> {
@@ -612,7 +599,6 @@ fn is_void_element(tag_name: &str) -> bool {
 }
 
 fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
-    let mut attrs = HashMap::new();
     let mut input = open_tag
         .trim()
         .trim_start_matches("<each")
@@ -620,29 +606,11 @@ fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
     if input.ends_with('/') {
         input = input[..input.len().saturating_sub(1)].trim_end();
     }
-    for cap in attr_re().captures_iter(input) {
-        let key = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
-        let val = cap
-            .get(2)
-            .or_else(|| cap.get(3))
-            .or_else(|| cap.get(4))
-            .map(|m| m.as_str())
-            .unwrap_or_default();
-        attrs.insert(key.to_string(), val.to_string());
-    }
-    Ok(attrs)
+    Ok(parse_attrs_payload(input))
 }
 
 fn line_number_at(source: &str, byte_index: usize) -> usize {
     source[..byte_index].bytes().filter(|b| *b == b'\n').count() + 1
-}
-
-fn attr_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r#"([:@a-zA-Z0-9_-]+)\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\s>]+))"#)
-            .expect("valid attr regex")
-    })
 }
 
 fn data_component_re() -> &'static Regex {
@@ -681,13 +649,9 @@ mod tests {
     #[test]
     fn parse_simple_each_block() {
         let html = "<each of=\"posts()\" as=\"post\" key=\"id\"><div>{{post.title}}</div></each>";
-        let (out, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse each");
+        let (out, sites) =
+            parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+                .expect("should parse each");
         assert!(out.contains("data-each=\"index_each_0\""));
         assert_eq!(sites.len(), 1);
     }
@@ -695,13 +659,8 @@ mod tests {
     #[test]
     fn parse_each_keyless_plain_array() {
         let html = "<each of=\"items\" as=\"item\"><div>{{item}}</div></each>";
-        let (_, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse keyless plain array");
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("should parse keyless plain array");
         assert!(matches!(sites[0].source, LoopSource::Plain(_)));
         assert!(matches!(sites[0].key_strategy, KeyStrategy::Index));
     }
@@ -709,13 +668,8 @@ mod tests {
     #[test]
     fn parse_each_keyless_signal() {
         let html = "<each of=\"items()\" as=\"item\"><div>{{item}}</div></each>";
-        let (_, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse keyless signal");
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("should parse keyless signal");
         assert!(matches!(sites[0].source, LoopSource::Signal(_)));
         assert!(matches!(sites[0].key_strategy, KeyStrategy::Index));
     }
@@ -723,13 +677,8 @@ mod tests {
     #[test]
     fn parse_each_keyed_field() {
         let html = "<each of=\"posts\" as=\"post\" key=\"id\"><div>{{post.title}}</div></each>";
-        let (_, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse keyed field");
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("should parse keyed field");
         assert_eq!(
             sites[0].key_strategy,
             KeyStrategy::Keyed {
@@ -741,13 +690,8 @@ mod tests {
     #[test]
     fn parse_each_extracts_text_bindings() {
         let html = "<each of=\"posts\" as=\"post\" key=\"id\"><p>{{post.title}}</p></each>";
-        let (_, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse text binding");
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("should parse text binding");
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "title");
         assert_eq!(sites[0].bindings[0].kind, BindingKind::TextContent);
@@ -757,13 +701,8 @@ mod tests {
     #[test]
     fn parse_each_extracts_attr_bindings() {
         let html = "<each of=\"posts\" as=\"post\" key=\"id\"><img src=\"{{post.url}}\"></each>";
-        let (_, sites) = parse_each_blocks(
-            html,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("should parse attr binding");
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("should parse attr binding");
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "url");
         assert_eq!(
@@ -778,8 +717,7 @@ mod tests {
 
     #[test]
     fn parse_each_extracts_attr_template_with_static_and_dynamic_parts() {
-        let html =
-            "<each of=\"posts\" as=\"post\" key=\"id\"><div class=\"message {{post.own}}\"></div></each>";
+        let html = "<each of=\"posts\" as=\"post\" key=\"id\"><div class=\"message {{post.own}}\"></div></each>";
         let (_, sites) = parse_each_blocks(
             html,
             "chat",
@@ -799,23 +737,14 @@ mod tests {
     #[test]
     fn parse_each_range_is_always_index_keyed() {
         let numeric = "<each of=\"10\" as=\"i\" key=\"id\"><span>{{i}}</span></each>";
-        let explicit =
-            "<each of=\"1..5\" as=\"i\" key=\"id\"><span>{{i}}</span></each>";
+        let explicit = "<each of=\"1..5\" as=\"i\" key=\"id\"><span>{{i}}</span></each>";
 
-        let (_, numeric_sites) = parse_each_blocks(
-            numeric,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("numeric range should parse");
-        let (_, explicit_sites) = parse_each_blocks(
-            explicit,
-            "index",
-            "src/pages/index.html",
-            &registry(false),
-        )
-        .expect("explicit range should parse");
+        let (_, numeric_sites) =
+            parse_each_blocks(numeric, "index", "src/pages/index.html", &registry(false))
+                .expect("numeric range should parse");
+        let (_, explicit_sites) =
+            parse_each_blocks(explicit, "index", "src/pages/index.html", &registry(false))
+                .expect("explicit range should parse");
 
         assert!(matches!(numeric_sites[0].source, LoopSource::Range(0, 10)));
         assert!(matches!(explicit_sites[0].source, LoopSource::Range(1, 5)));
@@ -848,10 +777,7 @@ mod tests {
             &registry(false),
         )
         .expect_err("multiple roots should error");
-        assert!(
-            err.to_string()
-                .contains("src/components/Chat/Chat.html")
-        );
+        assert!(err.to_string().contains("src/components/Chat/Chat.html"));
     }
 
     #[test]
@@ -883,9 +809,6 @@ mod tests {
 
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "username");
-        assert_eq!(
-            sites[0].bindings[0].selector,
-            "div.message > span.user"
-        );
+        assert_eq!(sites[0].bindings[0].selector, "div.message > span.user");
     }
 }

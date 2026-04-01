@@ -25,12 +25,14 @@ use regex::Regex;
 #[derive(Debug, Clone)]
 pub struct ComponentMeta {
     pub name: String,
+    pub source_html: String,
 }
 
 /// Metadata for a discovered page node.
 #[derive(Debug, Clone)]
 pub struct PageMeta {
     pub name: String,
+    pub source_html: String,
 }
 
 /// Graph of component and page dependencies used during the build.
@@ -59,7 +61,13 @@ pub fn create_dependency_graph(components_dir: &Path, pages_dir: &Path) -> Resul
     let mut dependency_graph = DependencyGraph::default();
 
     for component_path in scan_html_files(components_dir)? {
-        let component_meta = parse_component_meta(&component_path)?;
+        let source_html = fs::read_to_string(&component_path).with_context(|| {
+            format!(
+                "failed to read component '{}' while building the dependency graph\n  → confirm the file exists and is readable",
+                component_path.display()
+            )
+        })?;
+        let component_meta = parse_component_meta(&component_path, source_html)?;
         dependency_graph
             .dependencies
             .entry(component_path.clone())
@@ -70,7 +78,13 @@ pub fn create_dependency_graph(components_dir: &Path, pages_dir: &Path) -> Resul
     }
 
     for page_path in scan_html_files(pages_dir)? {
-        let page_meta = parse_page_meta(&page_path)?;
+        let source_html = fs::read_to_string(&page_path).with_context(|| {
+            format!(
+                "failed to read page '{}' while building the dependency graph\n  → confirm the file exists and is readable",
+                page_path.display()
+            )
+        })?;
+        let page_meta = parse_page_meta(&page_path, source_html)?;
         dependency_graph
             .dependencies
             .entry(page_path.clone())
@@ -172,14 +186,12 @@ impl DependencyGraph {
             .map(|(path, component_meta)| (component_meta.name.clone(), path.clone()))
             .collect();
 
-        let component_paths: Vec<PathBuf> = self.components.keys().cloned().collect();
-        for component_path in component_paths {
-            let component_html = fs::read_to_string(&component_path).with_context(|| {
-                format!(
-                    "failed to read component '{}' while building the dependency graph\n  → confirm the file exists and is readable",
-                    component_path.display()
-                )
-            })?;
+        let component_sources: Vec<(PathBuf, String)> = self
+            .components
+            .iter()
+            .map(|(path, meta)| (path.clone(), meta.source_html.clone()))
+            .collect();
+        for (component_path, component_html) in component_sources {
             self.register_component_refs(
                 &component_path,
                 &component_html,
@@ -188,14 +200,12 @@ impl DependencyGraph {
             );
         }
 
-        let page_paths: Vec<PathBuf> = self.pages.keys().cloned().collect();
-        for page_path in page_paths {
-            let page_html = fs::read_to_string(&page_path).with_context(|| {
-                format!(
-                    "failed to read page '{}' while building the dependency graph\n  → confirm the file exists and is readable",
-                    page_path.display()
-                )
-            })?;
+        let page_sources: Vec<(PathBuf, String)> = self
+            .pages
+            .iter()
+            .map(|(path, meta)| (path.clone(), meta.source_html.clone()))
+            .collect();
+        for (page_path, page_html) in page_sources {
             self.register_component_refs(&page_path, &page_html, &component_name_to_path, true);
         }
 
@@ -273,7 +283,7 @@ fn scan_html_files(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(html_files)
 }
 
-fn parse_component_meta(path: &Path) -> Result<ComponentMeta> {
+fn parse_component_meta(path: &Path, source_html: String) -> Result<ComponentMeta> {
     let name = path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -285,10 +295,10 @@ fn parse_component_meta(path: &Path) -> Result<ComponentMeta> {
         })?
         .to_string();
 
-    Ok(ComponentMeta { name })
+    Ok(ComponentMeta { name, source_html })
 }
 
-fn parse_page_meta(path: &Path) -> Result<PageMeta> {
+fn parse_page_meta(path: &Path, source_html: String) -> Result<PageMeta> {
     let name = path
         .file_stem()
         .and_then(|stem| stem.to_str())
@@ -300,7 +310,7 @@ fn parse_page_meta(path: &Path) -> Result<PageMeta> {
         })?
         .to_string();
 
-    Ok(PageMeta { name })
+    Ok(PageMeta { name, source_html })
 }
 
 fn push_unique(items: &mut Vec<String>, value: String) {

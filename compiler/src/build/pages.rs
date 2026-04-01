@@ -54,7 +54,6 @@ pub struct ComponentDirectives {
 /// Collect pre-parsed directive sites for dynamic components.
 pub fn collect_component_directives(
     component_registry: &HashMap<String, CompiledComponent>,
-    _page_name: &str,
 ) -> Result<Vec<ComponentDirectives>> {
     let mut dynamic_components: Vec<&CompiledComponent> = component_registry
         .values()
@@ -74,43 +73,17 @@ pub fn collect_component_directives(
     Ok(directives)
 }
 
-/// Collect all page file paths under `pages_dir` recursively.
-pub fn collect_page_paths(pages_dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut paths = Vec::new();
-    if !pages_dir.exists() {
-        return Ok(paths);
-    }
-    collect_page_paths_inner(pages_dir, &mut paths)?;
-    Ok(paths)
-}
-
-fn collect_page_paths_inner(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    for entry in fs::read_dir(dir).with_context(|| {
-        format!(
-            "failed to read pages directory '{}'\n  → confirm the path exists and is readable",
-            dir.display()
-        )
-    })? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_page_paths_inner(&path, out)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("html") {
-            out.push(path);
-        }
-    }
-    Ok(())
-}
-
 /// Compile one page and collect compile-time directives.
 pub fn compile_page(
     source_path: PathBuf,
+    source_html: String,
     pages_root: PathBuf,
     out_dir: PathBuf,
     component_registry: std::sync::Arc<HashMap<String, CompiledComponent>>,
 ) -> Result<(PageDef, PageDirectives)> {
     parse_and_expand_page(
         &source_path,
+        &source_html,
         &pages_root,
         &out_dir,
         component_registry.as_ref(),
@@ -160,18 +133,12 @@ pub fn resolve_page_out_path(source_path: &Path, pages_root: &Path, out_dir: &Pa
 
 fn parse_and_expand_page(
     source_path: &Path,
+    source_html: &str,
     pages_root: &Path,
     out_dir: &Path,
     component_registry: &HashMap<String, CompiledComponent>,
 ) -> Result<(PageDef, PageDirectives)> {
-    let source_html = fs::read_to_string(source_path).with_context(|| {
-        format!(
-            "failed to read page '{}'\n  → confirm the file exists and is readable",
-            source_path.display()
-        )
-    })?;
-
-    let (page_attrs, page_inner_html) = extract_page_element(&source_html, source_path)?;
+    let (page_attrs, page_inner_html) = extract_page_element(source_html, source_path)?;
     let route = page_attrs
         .get("route")
         .cloned()

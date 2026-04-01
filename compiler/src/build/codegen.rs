@@ -308,7 +308,10 @@ mod tests {
 
     #[test]
     fn qualifies_signal_call() {
-        assert_eq!(qualify_expr("posts()", "PageModule0"), "PageModule0.posts()");
+        assert_eq!(
+            qualify_expr("posts()", "PageModule0"),
+            "PageModule0.posts()"
+        );
     }
 
     #[test]
@@ -336,7 +339,10 @@ mod tests {
 
     #[test]
     fn qualifies_comparison() {
-        assert_eq!(qualify_expr("count > 0", "PageModule0"), "PageModule0.count > 0");
+        assert_eq!(
+            qualify_expr("count > 0", "PageModule0"),
+            "PageModule0.count > 0"
+        );
     }
 
     #[test]

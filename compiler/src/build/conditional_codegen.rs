@@ -37,7 +37,10 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
             buf.line(&format!("function __toggle_{}(): void {{", site.id));
         }
         DirectiveContext::Component => {
-            buf.line(&format!("function __toggle_{}(inst: any): void {{", site.id));
+            buf.line(&format!(
+                "function __toggle_{}(inst: any): void {{",
+                site.id
+            ));
         }
     }
     buf.indent();
@@ -111,9 +114,10 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
 pub fn generate_if_wiring(site: &IfSite, context: &DirectiveContext, buf: &mut TsBuffer) {
     let has_signal = site.branches.iter().any(|branch| {
         branch.is_signal
-            || branch.condition.as_ref().is_some_and(|expr| {
-                matches!(detect_value_kind(expr), ValueKind::Signal(_))
-            })
+            || branch
+                .condition
+                .as_ref()
+                .is_some_and(|expr| matches!(detect_value_kind(expr), ValueKind::Signal(_)))
     });
 
     match context {

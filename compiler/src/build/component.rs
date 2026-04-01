@@ -25,6 +25,7 @@ use super::codegen::{LoopSource, detect_value_kind};
 use super::conditional::{IfSite, parse_if_blocks};
 use super::dependency_graph::DependencyGraph;
 use super::each::{EachSite, parse_each_blocks};
+use super::pages_util::parse_attrs as parse_attrs_payload;
 
 const MAX_EXPANSIONS: usize = 500;
 
@@ -63,13 +64,8 @@ pub fn build_component_registry(
         .filter(|path| dependency_graph.components.contains_key(*path))
     {
         let component_meta = &dependency_graph.components[component_path];
-        let raw_html = fs::read_to_string(component_path).with_context(|| {
-            format!(
-                "failed to read component '{}'\n  → confirm the file exists and is readable",
-                component_path.display()
-            )
-        })?;
-        let expanded_html = expand_component_tags(&raw_html, &component_registry)?;
+        let raw_html = component_meta.source_html.as_str();
+        let expanded_html = expand_component_tags(raw_html, &component_registry)?;
         let is_dynamic = raw_html.contains("tinyfx-dynamic");
         let script_path = component_path.with_extension("ts");
         let mut compiled_html = expanded_html;
@@ -327,7 +323,6 @@ fn find_component_span(html: &str) -> Option<ComponentSpan> {
 }
 
 fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
-    let mut attrs = HashMap::new();
     let mut input = open_tag.trim();
 
     if !input.starts_with("<component") {
@@ -340,73 +335,7 @@ fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
     input = input.trim_start_matches("<component");
     input = input.trim_end_matches('>');
 
-    let chars: Vec<char> = input.chars().collect();
-    let mut index = 0;
-
-    while index < chars.len() {
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-        if index >= chars.len() {
-            break;
-        }
-
-        let key_start = index;
-        while index < chars.len()
-            && !chars[index].is_whitespace()
-            && chars[index] != '='
-            && chars[index] != '>'
-        {
-            index += 1;
-        }
-        let key: String = chars[key_start..index].iter().collect();
-        if key.is_empty() {
-            break;
-        }
-
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() || chars[index] != '=' {
-            attrs.insert(key, "true".to_string());
-            continue;
-        }
-        index += 1;
-
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() {
-            attrs.insert(key, String::new());
-            break;
-        }
-
-        let value = if chars[index] == '"' || chars[index] == '\'' {
-            let quote = chars[index];
-            index += 1;
-            let value_start = index;
-            while index < chars.len() && chars[index] != quote {
-                index += 1;
-            }
-            let value: String = chars[value_start..index].iter().collect();
-            if index < chars.len() {
-                index += 1;
-            }
-            value
-        } else {
-            let value_start = index;
-            while index < chars.len() && !chars[index].is_whitespace() && chars[index] != '>' {
-                index += 1;
-            }
-            chars[value_start..index].iter().collect()
-        };
-
-        attrs.insert(key, value);
-    }
-
-    Ok(attrs)
+    Ok(parse_attrs_payload(input))
 }
 
 fn ensure_data_component(html: &str, component_name: &str) -> String {
@@ -532,22 +461,9 @@ fn ensure_property_is_public(
     each_sites: &[EachSite],
     if_sites: &[IfSite],
 ) -> Result<()> {
-    let escaped = regex::escape(property);
-    let private_re = Regex::new(&format!(r"(?m)\b(private|protected)\s+{}\b", escaped))
-        .with_context(|| {
-            format!(
-                "failed to compile visibility check regex for component '{}': {}",
-                component_name, property
-            )
-        })?;
-    let public_re = Regex::new(&format!(r"(?m)\bpublic\s+{}\b", escaped)).with_context(|| {
-        format!(
-            "failed to compile public member regex for component '{}': {}",
-            component_name, property
-        )
-    })?;
+    let (has_public, has_private_or_protected) = collect_member_visibility(script_source, property);
 
-    if private_re.is_match(script_source) || !public_re.is_match(script_source) {
+    if has_private_or_protected || !has_public {
         let each_source = each_sites
             .iter()
             .find_map(|site| match &site.source {
@@ -587,6 +503,37 @@ fn ensure_property_is_public(
     }
 
     Ok(())
+}
+
+fn collect_member_visibility(script_source: &str, property: &str) -> (bool, bool) {
+    let mut has_public = false;
+    let mut has_private_or_protected = false;
+
+    for captures in member_visibility_re().captures_iter(script_source) {
+        let visibility = captures.get(1).map(|m| m.as_str()).unwrap_or_default();
+        let member_name = captures.get(2).map(|m| m.as_str()).unwrap_or_default();
+        if member_name != property {
+            continue;
+        }
+
+        match visibility {
+            "public" => has_public = true,
+            "private" | "protected" => has_private_or_protected = true,
+            _ => {}
+        }
+    }
+
+    (has_public, has_private_or_protected)
+}
+
+fn member_visibility_re() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(
+            r"(?m)\b(public|private|protected)\s+(?:(?:readonly|static|override|declare|abstract|async)\s+)*(?:get\s+|set\s+)?([A-Za-z_][A-Za-z0-9_]*)\b",
+        )
+        .unwrap()
+    })
 }
 
 fn push_unique(values: &mut Vec<String>, value: &str) {

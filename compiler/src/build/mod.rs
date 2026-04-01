@@ -21,10 +21,10 @@ mod dependency_graph;
 mod each;
 mod each_codegen;
 mod glue;
-mod wrapper;
 pub mod pages;
 mod pages_util;
 mod pool;
+mod wrapper;
 
 use std::collections::HashMap;
 use std::fs;
@@ -55,17 +55,21 @@ pub fn run_build(config: &Config) -> Result<()> {
     println!("tinyfx build\n");
 
     let (dependency_graph, build_order) = phase_0_build_dependency_graph(config)?;
-    let component_registry = phase_1_compile_components(config, &dependency_graph, &build_order)?;
-    let (resolved_pages, directives) = phase_2_process_pages(config, &component_registry)?;
-    let component_directives = pages::collect_component_directives(&component_registry, "index")?;
-    let generated_glue_path =
-        phase_3_generate_glue(
-            config,
-            &component_registry,
-            &resolved_pages,
-            &directives,
-            &component_directives,
-        )?;
+    let component_registry = Arc::new(phase_1_compile_components(
+        config,
+        &dependency_graph,
+        &build_order,
+    )?);
+    let (resolved_pages, directives) =
+        phase_2_process_pages(config, &dependency_graph, Arc::clone(&component_registry))?;
+    let component_directives = pages::collect_component_directives(component_registry.as_ref())?;
+    let generated_glue_path = phase_3_generate_glue(
+        config,
+        component_registry.as_ref(),
+        &resolved_pages,
+        &directives,
+        &component_directives,
+    )?;
 
     if config.phase_one_only {
         println!(
@@ -133,29 +137,32 @@ fn phase_1_compile_components(
 
 fn phase_2_process_pages(
     config: &Config,
-    component_registry: &ComponentRegistry,
+    dependency_graph: &DependencyGraph,
+    component_registry: Arc<ComponentRegistry>,
 ) -> Result<(Vec<PageDef>, Vec<PageDirectives>)> {
     println!("\nPhase 2: Page processing");
     let num_threads = std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4);
 
-    let registry = Arc::new(component_registry.clone());
-
     let pages_dir = PathBuf::from(&config.pages);
     let out_dir = PathBuf::from(&config.out_dir);
 
-    // Collect page paths without doing full expansion so we can compile in parallel.
-    let page_paths = pages::collect_page_paths(&pages_dir)?;
+    let mut page_sources: Vec<(PathBuf, String)> = dependency_graph
+        .pages
+        .iter()
+        .map(|(path, meta)| (path.clone(), meta.source_html.clone()))
+        .collect();
+    page_sources.sort_by(|(left, _), (right, _)| left.cmp(right));
 
-    let jobs: Vec<_> = page_paths
+    let jobs: Vec<_> = page_sources
         .into_iter()
-        .map(|path| {
-            let registry = Arc::clone(&registry);
+        .map(|(path, source_html)| {
+            let registry = Arc::clone(&component_registry);
             let pages_root = pages_dir.clone();
             let out_dir = out_dir.clone();
             move || -> Result<(PageDef, PageDirectives)> {
-                pages::compile_page(path, pages_root, out_dir, registry)
+                pages::compile_page(path, source_html, pages_root, out_dir, registry)
             }
         })
         .collect();
@@ -189,8 +196,12 @@ fn phase_3_generate_glue(
     let entry_ts = PathBuf::from(&config.entry_ts);
     let src_dir = entry_ts.parent().unwrap_or(Path::new("."));
     let generated_glue_path = src_dir.join("tinyfx.gen.ts");
-    let generated_glue =
-        glue::generate_registry(component_registry, resolved_pages, directives, component_directives);
+    let generated_glue = glue::generate_registry(
+        component_registry,
+        resolved_pages,
+        directives,
+        component_directives,
+    );
 
     fs::write(&generated_glue_path, generated_glue).with_context(|| {
         format!(
@@ -326,26 +337,66 @@ fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path) -> Resul
 
 /// Find the esbuild executable, preferring local installs before global ones.
 fn find_esbuild() -> Result<String> {
-    let local_esbuild = Path::new("node_modules/.bin/esbuild");
-    if local_esbuild.exists() {
-        return Ok(local_esbuild.to_string_lossy().into_owned());
-    }
-
-    if let Ok(output) = Command::new("which").arg("esbuild").output() {
-        if output.status.success() {
-            return Ok("esbuild".to_string());
+    for local in [
+        "node_modules/.bin/esbuild",
+        "node_modules/.bin/esbuild.cmd",
+        "node_modules/.bin/esbuild.exe",
+    ] {
+        let local_esbuild = Path::new(local);
+        if local_esbuild.is_file() {
+            return Ok(local_esbuild.to_string_lossy().into_owned());
         }
     }
 
-    if let Ok(output) = Command::new("which").arg("npx").output() {
-        if output.status.success() {
-            return Ok("npx".to_string());
-        }
+    if command_exists("esbuild") {
+        return Ok("esbuild".to_string());
+    }
+
+    if command_exists("npx") {
+        return Ok("npx".to_string());
     }
 
     bail!(
         "esbuild was not found\n  → install it with 'npm install --save-dev esbuild' or 'npm install -g esbuild'"
     )
+}
+
+fn command_exists(command: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+
+    #[cfg(windows)]
+    let exts: Vec<String> = std::env::var_os("PATHEXT")
+        .map(|value| {
+            value
+                .to_string_lossy()
+                .split(';')
+                .map(|part| part.to_string())
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            vec![
+                ".COM".to_string(),
+                ".EXE".to_string(),
+                ".BAT".to_string(),
+                ".CMD".to_string(),
+            ]
+        });
+
+    #[cfg(not(windows))]
+    let exts: Vec<String> = vec![String::new()];
+
+    for dir in std::env::split_paths(&path_var) {
+        for ext in &exts {
+            let candidate = dir.join(format!("{}{}", command, ext));
+            if candidate.is_file() {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Recursively copy all files from `src` into `dest`.

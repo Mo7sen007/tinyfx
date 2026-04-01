@@ -54,6 +54,15 @@ pub fn serialize_attrs_to_html(attrs: &HashMap<String, String>) -> String {
 /// Parse `key="value"` style attributes from a tag payload.
 pub fn parse_attrs(attrs: &str) -> HashMap<String, String> {
     let mut parsed = HashMap::new();
+    for (key, value) in parse_attrs_ordered(attrs) {
+        parsed.insert(key, value);
+    }
+    parsed
+}
+
+/// Parse attributes while preserving source order.
+pub fn parse_attrs_ordered(attrs: &str) -> Vec<(String, String)> {
+    let mut parsed = Vec::new();
     let chars: Vec<char> = attrs.chars().collect();
     let mut index = 0;
 
@@ -84,7 +93,7 @@ pub fn parse_attrs(attrs: &str) -> HashMap<String, String> {
         }
 
         if index >= chars.len() || chars[index] != '=' {
-            parsed.insert(key, "true".to_string());
+            parsed.push((key, "true".to_string()));
             continue;
         }
         index += 1;
@@ -94,7 +103,7 @@ pub fn parse_attrs(attrs: &str) -> HashMap<String, String> {
         }
 
         if index >= chars.len() {
-            parsed.insert(key, String::new());
+            parsed.push((key, String::new()));
             break;
         }
 
@@ -118,7 +127,7 @@ pub fn parse_attrs(attrs: &str) -> HashMap<String, String> {
             chars[value_start..index].iter().collect()
         };
 
-        parsed.insert(key, value);
+        parsed.push((key, value));
     }
 
     parsed
