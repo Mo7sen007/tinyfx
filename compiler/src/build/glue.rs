@@ -34,6 +34,7 @@ pub fn generate_registry(
     pages: &[PageDef],
     page_directives: &[PageDirectives],
     component_directives: &[ComponentDirectives],
+    release: bool,
 ) -> String {
     let src_dir = infer_src_dir(component_registry, pages);
     let component_imports = collect_dynamic_component_imports(component_registry, &src_dir);
@@ -54,13 +55,13 @@ pub fn generate_registry(
     }
     emit_mount_component_helper(has_instance_tracking, &mut buf);
     emit_component_imports(&component_imports, &mut buf);
-    emit_component_directive_helpers(component_directives, &mut buf);
+    emit_component_directive_helpers(component_directives, release, &mut buf);
     emit_registry(component_registry, component_directives, &mut buf);
     emit_page_imports(&page_imports, &mut buf);
     emit_routes(&sorted_pages, &mut buf);
     emit_page_modules(&page_entries, &mut buf);
-    emit_page_directive_helpers(page_directives, &page_module_aliases, &mut buf);
-    emit_setup_directives(page_directives, &page_module_aliases, &mut buf);
+    emit_page_directive_helpers(page_directives, &page_module_aliases, release, &mut buf);
+    emit_setup_directives(page_directives, &page_module_aliases, release, &mut buf);
     emit_bootstrap(&mut buf, uses_reactivity);
 
     buf.build()
@@ -176,7 +177,11 @@ fn emit_component_imports(imports: &[DynamicComponentImport], buf: &mut TsBuffer
     }
 }
 
-fn emit_component_directive_helpers(directives: &[ComponentDirectives], buf: &mut TsBuffer) {
+fn emit_component_directive_helpers(
+    directives: &[ComponentDirectives],
+    release: bool,
+    buf: &mut TsBuffer,
+) {
     let mut each_sites: Vec<_> = directives
         .iter()
         .flat_map(|directive| directive.each_sites.iter())
@@ -190,10 +195,10 @@ fn emit_component_directive_helpers(directives: &[ComponentDirectives], buf: &mu
     if_sites.sort_by(|left, right| left.id.cmp(&right.id));
 
     for site in each_sites {
-        generate_each_helpers(site, &DirectiveContext::Component, buf);
+        generate_each_helpers(site, &DirectiveContext::Component { release }, buf);
     }
     for site in if_sites {
-        generate_if_helpers(site, &DirectiveContext::Component, buf);
+        generate_if_helpers(site, &DirectiveContext::Component { release }, buf);
     }
 }
 
@@ -294,6 +299,7 @@ fn emit_page_modules(entries: &[(String, String)], buf: &mut TsBuffer) {
 fn emit_page_directive_helpers(
     directives: &[PageDirectives],
     page_module_aliases: &HashMap<String, String>,
+    release: bool,
     buf: &mut TsBuffer,
 ) {
     let mut each_sites = Vec::new();
@@ -320,6 +326,7 @@ fn emit_page_directive_helpers(
             site,
             &DirectiveContext::Page {
                 module_alias: alias,
+                release,
             },
             buf,
         );
@@ -329,6 +336,7 @@ fn emit_page_directive_helpers(
             site,
             &DirectiveContext::Page {
                 module_alias: alias,
+                release,
             },
             buf,
         );
@@ -338,6 +346,7 @@ fn emit_page_directive_helpers(
 fn emit_setup_directives(
     directives: &[PageDirectives],
     page_module_aliases: &HashMap<String, String>,
+    release: bool,
     buf: &mut TsBuffer,
 ) {
     let mut each_sites = Vec::new();
@@ -366,6 +375,7 @@ fn emit_setup_directives(
             site,
             &DirectiveContext::Page {
                 module_alias: alias,
+                release,
             },
             buf,
         );
@@ -375,6 +385,7 @@ fn emit_setup_directives(
             site,
             &DirectiveContext::Page {
                 module_alias: alias,
+                release,
             },
             buf,
         );
@@ -562,7 +573,7 @@ mod tests {
 
     #[test]
     fn empty_registry() {
-        let result = generate_registry(&HashMap::new(), &[], &[], &[]);
+        let result = generate_registry(&HashMap::new(), &[], &[], &[], false);
         assert!(result.contains("registerComponent"));
         assert!(result.contains("registerPage"));
         assert!(result.contains("markMounted"));
@@ -590,7 +601,7 @@ mod tests {
             if_sites: Vec::new(),
         }];
 
-        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[], false);
         assert!(result.contains("effect,"));
         assert!(result.contains("effect(() => __reconcile_index_each_0"));
         assert!(result.contains("init({ routes, setupDirectives })"));
@@ -614,7 +625,7 @@ mod tests {
             }],
         }];
 
-        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[], false);
         assert!(result.contains("effect,"));
         assert!(result.contains("effect(() => __toggle_index_if_0"));
     }
@@ -636,10 +647,10 @@ mod tests {
             if_sites: Vec::new(),
         }];
 
-        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[], false);
         assert!(!result.contains("effect,"));
-        assert!(result.contains("__reconcile_index_each_0"));
-        assert!(!result.contains("effect(() => __reconcile_index_each_0"));
+        assert!(result.contains("__mount_static_index_each_0"));
+        assert!(!result.contains("effect(() => __mount_static_index_each_0"));
         assert!(result.contains("init({ routes, setupDirectives })"));
         assert!(!result.contains("init({ routes, setupDirectives, effect })"));
     }
@@ -662,7 +673,7 @@ mod tests {
             }],
         }];
 
-        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[], false);
         assert!(!result.contains("effect,"));
         assert!(result.contains("__toggle_index_if_0"));
         assert!(!result.contains("effect(() => __toggle_index_if_0"));
@@ -685,7 +696,7 @@ mod tests {
             if_sites: Vec::new(),
         }];
 
-        let result = generate_registry(&HashMap::new(), &[], &directives, &[]);
+        let result = generate_registry(&HashMap::new(), &[], &directives, &[], false);
         assert!(result.contains("function __destroyNode"));
         assert!(result.contains("function __registerInstance"));
         assert!(!result.contains("destroyNode as __destroyNode"));
@@ -694,7 +705,7 @@ mod tests {
 
     #[test]
     fn mount_component_uses_mark_mounted() {
-        let result = generate_registry(&HashMap::new(), &[], &[], &[]);
+        let result = generate_registry(&HashMap::new(), &[], &[], &[], false);
         assert!(result.contains("if (!markMounted(el)) return undefined;"));
         assert!(!result.contains("dataset.tinyfxMounted"));
     }
@@ -709,7 +720,7 @@ mod tests {
             out_path: std::path::PathBuf::from("dist/blog.html"),
         }];
 
-        let result = generate_registry(&HashMap::new(), &pages, &[], &[]);
+        let result = generate_registry(&HashMap::new(), &pages, &[], &[], false);
         assert!(result.contains("staticSegments: [\"blog\", null]"));
         assert!(result.contains("paramNames: [\"slug\"]"));
     }

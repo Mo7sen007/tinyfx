@@ -89,7 +89,7 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
         }
         LoopSource::Plain(expr) => {
             buf.line(&format!(
-                "__reconcile_{}(__each_{}, inst.{}, ctx);",
+                "__mount_static_{}(__each_{}, inst.{}, ctx);",
                 site.id,
                 site.id,
                 expr.trim()
@@ -102,7 +102,7 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
                 site.id, len, start
             ));
             buf.line(&format!(
-                "__reconcile_{}(__each_{}, __items_{}, ctx);",
+                "__mount_static_{}(__each_{}, __items_{}, ctx);",
                 site.id, site.id, site.id
             ));
         }
@@ -228,8 +228,8 @@ mod tests {
             if_sites: Vec::new(),
         });
 
-        assert!(code.contains("__reconcile_chat_each_0(__each_chat_each_0, inst.items, ctx);"));
-        assert!(!code.contains("effect(() => __reconcile_chat_each_0"));
+        assert!(code.contains("__mount_static_chat_each_0(__each_chat_each_0, inst.items, ctx);"));
+        assert!(!code.contains("effect(() => __mount_static_chat_each_0"));
     }
 
     #[test]

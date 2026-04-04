@@ -1,0 +1,14 @@
+# TinyFX project configuration
+
+entry      = "src"
+entry_ts   = "src/main.ts"
+out_dir    = "dist"
+components = "src/components"
+styles     = "src/styles"
+pages      = "src/pages"
+
+[server]
+port = 3000
+
+[router]
+mode = "hard"

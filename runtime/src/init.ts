@@ -11,6 +11,8 @@ import { setParams } from "./router/params";
 import { mountComponents } from "./registry";
 import { runPageInit } from "./page-registry";
 
+declare const __DEV__: boolean;
+
 export interface InitConfig {
   routes: Record<string, RouteDef>;
   setupDirectives?: (ctx: TinyFxContext) => void;
@@ -44,10 +46,12 @@ export function init(config: InitConfig): InitResult | null {
   }
 
   if (!matchedPath) {
-    console.warn(
-      `[tinyfx] No route matched for pathname: "${pathname}". ` +
-      "Check that a page file exists for this URL in src/pages/."
-    );
+    if (__DEV__) {
+      console.warn(
+        `[tinyfx] No route matched for pathname: "${pathname}". ` +
+        "Check that a page file exists for this URL in src/pages/."
+      );
+    }
     return null;
   }
 

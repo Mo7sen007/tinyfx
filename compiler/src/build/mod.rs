@@ -21,6 +21,7 @@ mod dependency_graph;
 mod each;
 mod each_codegen;
 mod glue;
+mod icons;
 pub mod pages;
 mod pages_util;
 mod pool;
@@ -52,7 +53,10 @@ type ComponentRegistry = HashMap<String, CompiledComponent>;
 /// page input, missing dynamic component scripts, route/layout resolution
 /// failures, or esbuild and file-copy errors during the asset pipeline.
 pub fn run_build(config: &Config) -> Result<()> {
-    println!("tinyfx build\n");
+    println!(
+        "tinyfx build{}\n",
+        if config.release { " --release" } else { "" }
+    );
 
     let (dependency_graph, build_order) = phase_0_build_dependency_graph(config)?;
     let component_registry = Arc::new(phase_1_compile_components(
@@ -201,6 +205,7 @@ fn phase_3_generate_glue(
         resolved_pages,
         directives,
         component_directives,
+        config.release,
     );
 
     fs::write(&generated_glue_path, generated_glue).with_context(|| {
@@ -222,7 +227,12 @@ fn phase_4_run_asset_pipeline(config: &Config, generated_glue_path: &Path) -> Re
     let out_dir = PathBuf::from(&config.out_dir);
 
     if entry_ts.exists() {
-        run_esbuild(&entry_ts, generated_glue_path, &out_dir.join("js"))?;
+        run_esbuild(
+            &entry_ts,
+            generated_glue_path,
+            &out_dir.join("js"),
+            config.release,
+        )?;
         println!("  ✔ dist/js/main.js");
     }
 
@@ -276,7 +286,7 @@ fn ensure_output_dirs(out_dir: &Path) -> Result<()> {
 }
 
 /// Run esbuild to bundle the entry and generated glue into `dist/js/main.js`.
-fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path) -> Result<()> {
+fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path, release: bool) -> Result<()> {
     let out_file = out_js.join("main.js");
     let temporary_entry = out_js.parent().unwrap_or(Path::new(".")).join("_entry.ts");
     let entry_content = format!(
@@ -295,7 +305,7 @@ fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path) -> Resul
     })?;
 
     let esbuild_command = find_esbuild()?;
-    let mut command = if esbuild_command == "npx" {
+    let command = if esbuild_command == "npx" {
         let mut command = Command::new("npx");
         command.arg("esbuild");
         command
@@ -303,7 +313,8 @@ fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path) -> Resul
         Command::new(&esbuild_command)
     };
 
-    let status = command
+    let mut command = command;
+    command
         .arg(&temporary_entry)
         .arg("--bundle")
         .arg(format!("--outfile={}", out_file.display()))
@@ -312,8 +323,17 @@ fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path) -> Resul
         .arg("--alias:@models=./src/lib/models")
         .arg("--alias:@dto=./src/lib/dto")
         .arg("--alias:@state=./src/lib/state")
-        .arg("--alias:@services=./src/lib/services")
-        .arg("--minify")
+        .arg("--alias:@services=./src/lib/services");
+
+    if release {
+        command.arg("--minify");
+        command.arg("--define:__DEV__=false");
+    } else {
+        command.arg("--sourcemap");
+        command.arg("--define:__DEV__=true");
+    }
+
+    let status = command
         .status()
         .with_context(|| {
             format!(

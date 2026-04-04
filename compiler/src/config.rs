@@ -50,6 +50,9 @@ pub struct Config {
     ///For Debugging
     #[serde(default)]
     pub phase_one_only: bool,
+    /// Enable production-mode compiler/codegen optimizations.
+    #[serde(default)]
+    pub release: bool,
 }
 
 fn default_entry_root() -> String {
@@ -92,6 +95,7 @@ impl Default for Config {
             assets_dir: default_assets_dir(),
             pages: default_pages_dir(),
             phase_one_only: false,
+            release: false,
         }
     }
 }

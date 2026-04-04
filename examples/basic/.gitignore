@@ -1,0 +1,8 @@
+# Build output
+dist/
+
+# TinyFX generated
+src/tinyfx.gen.ts
+
+# Dependencies
+node_modules/

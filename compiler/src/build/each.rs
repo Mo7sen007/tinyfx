@@ -51,12 +51,12 @@ pub enum BindingKind {
 /// A single resolved binding extracted from a loop template.
 ///
 /// `field` is the loop-item field name (for example `"title"`).
-/// `selector` is a structural CSS selector captured at compile time.
+/// `fx_index` is the numeric `data-fx` marker injected at compile time.
 /// `kind` describes how generated update code mutates the selected node.
 #[derive(Debug, Clone)]
 pub struct TemplateBinding {
     pub field: String,
-    pub selector: String,
+    pub fx_index: usize,
     pub kind: BindingKind,
     pub attr_template: Option<String>,
 }
@@ -147,14 +147,15 @@ pub fn parse_each_blocks(
 
         let template_raw = html[span.open_end..span.close_start].to_string();
         ensure_components_registered(&template_raw, component_registry, source_file)?;
-        let template_html = expand_component_tags(&template_raw, component_registry).with_context(|| {
-            format!(
-                "failed to expand <each> template components in {}\n  → inspect component tags inside the loop body",
-                source_file
-            )
-        })?;
+        let expanded_template =
+            expand_component_tags(&template_raw, component_registry).with_context(|| {
+                format!(
+                    "failed to expand <each> template components in {}\n  → inspect component tags inside the loop body",
+                    source_file
+                )
+            })?;
 
-        let root_count = count_root_elements(&template_html);
+        let root_count = count_root_elements(&expanded_template);
         if root_count > 1 {
             let key_hint = match &key_strategy {
                 KeyStrategy::Keyed { field_name } => field_name.clone(),
@@ -177,7 +178,10 @@ pub fn parse_each_blocks(
             );
         }
 
-        let bindings = extract_template_bindings(&template_html, &item_var);
+        let extraction = extract_template_bindings(&expanded_template, &item_var);
+        let fx_index_by_node = build_fx_index_map(&extraction.targets);
+        let template_html = inject_fx_markers(&expanded_template, &fx_index_by_node);
+        let bindings = to_template_bindings(&extraction.targets, &fx_index_by_node);
 
         let id = site_id(scope_name, "each", index);
         out.push_str(&format!(
@@ -286,11 +290,16 @@ fn collect_dynamic_names(html: &str) -> Vec<String> {
 }
 
 #[derive(Debug, Clone)]
-struct ElementCtx {
-    tag: String,
-    id: Option<String>,
-    first_class: Option<String>,
-    nth_child: usize,
+struct BindingTarget {
+    field: String,
+    node_index: usize,
+    kind: BindingKind,
+    attr_template: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct BindingExtraction {
+    targets: Vec<BindingTarget>,
 }
 
 // Count top-level root elements in an HTML fragment.
@@ -351,23 +360,23 @@ fn count_root_elements(html: &str) -> usize {
 }
 
 // Extract first-seen template bindings from expanded loop HTML.
-fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<TemplateBinding> {
-    let mut out = Vec::new();
+fn extract_template_bindings(template_html: &str, item_var: &str) -> BindingExtraction {
+    let mut targets = Vec::new();
     let mut seen_fields = Vec::<String>::new();
-    let mut stack: Vec<ElementCtx> = Vec::new();
-    let mut child_counts: Vec<usize> = vec![0];
+    let mut stack: Vec<usize> = Vec::new();
     let mut cursor = 0usize;
+    let mut node_index = 0usize;
 
     while cursor < template_html.len() {
         let Some(next_tag_rel) = template_html[cursor..].find('<') else {
             let text = &template_html[cursor..];
-            if !stack.is_empty() {
+            if let Some(current_node_index) = stack.last().copied() {
                 collect_text_bindings(
                     text,
                     item_var,
-                    selector_from_stack(&stack),
+                    current_node_index,
                     &mut seen_fields,
-                    &mut out,
+                    &mut targets,
                 );
             }
             break;
@@ -375,13 +384,13 @@ fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<Templat
 
         let next_tag = cursor + next_tag_rel;
         let text = &template_html[cursor..next_tag];
-        if !stack.is_empty() {
+        if let Some(current_node_index) = stack.last().copied() {
             collect_text_bindings(
                 text,
                 item_var,
-                selector_from_stack(&stack),
+                current_node_index,
                 &mut seen_fields,
-                &mut out,
+                &mut targets,
             );
         }
 
@@ -397,12 +406,7 @@ fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<Templat
         }
 
         if tag_src.starts_with('/') {
-            if !stack.is_empty() {
-                stack.pop();
-            }
-            if child_counts.len() > 1 {
-                child_counts.pop();
-            }
+            stack.pop();
             cursor = tag_end + 1;
             continue;
         }
@@ -422,40 +426,157 @@ fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<Templat
         }
 
         let attrs_src = parts.next().unwrap_or_default();
-        let parent_depth = child_counts.len().saturating_sub(1);
-        child_counts[parent_depth] += 1;
-        let nth_child = child_counts[parent_depth];
-
-        let ctx = ElementCtx {
-            tag: tag.clone(),
-            id: attr_value(attrs_src, "id"),
-            first_class: first_class_from_attrs(attrs_src),
-            nth_child,
-        };
-        let selector = current_selector(&stack, &ctx);
+        let current_node_index = node_index;
+        node_index += 1;
 
         for (attr_name, attr_value) in parse_attrs_ordered_payload(attrs_src) {
             let attr_name = attr_name.as_str();
             let attr_value = attr_value.as_str();
 
             for field in extract_binding_fields(attr_value, item_var) {
-                if seen_fields.iter().any(|existing| existing == &field) {
-                    continue;
-                }
-                seen_fields.push(field.clone());
-                out.push(TemplateBinding {
-                    field,
-                    selector: selector.clone(),
-                    kind: BindingKind::Attribute(attr_name.to_string()),
-                    attr_template: Some(attr_value.to_string()),
-                });
+                collect_binding_target(
+                    &field,
+                    current_node_index,
+                    BindingKind::Attribute(attr_name.to_string()),
+                    Some(attr_value.to_string()),
+                    &mut seen_fields,
+                    &mut targets,
+                );
             }
         }
 
         let is_void = is_void_element(&tag);
         if !self_closing && !is_void {
-            stack.push(ctx);
-            child_counts.push(0);
+            stack.push(current_node_index);
+        }
+
+        cursor = tag_end + 1;
+    }
+
+    BindingExtraction { targets }
+}
+
+fn collect_text_bindings(
+    text: &str,
+    item_var: &str,
+    node_index: usize,
+    seen_fields: &mut Vec<String>,
+    out: &mut Vec<BindingTarget>,
+) {
+    for field in extract_binding_fields(text, item_var) {
+        collect_binding_target(
+            &field,
+            node_index,
+            BindingKind::TextContent,
+            None,
+            seen_fields,
+            out,
+        );
+    }
+}
+
+fn collect_binding_target(
+    field: &str,
+    node_index: usize,
+    kind: BindingKind,
+    attr_template: Option<String>,
+    seen_fields: &mut Vec<String>,
+    out: &mut Vec<BindingTarget>,
+) {
+    if seen_fields.iter().any(|existing| existing == field) {
+        return;
+    }
+
+    seen_fields.push(field.to_string());
+    out.push(BindingTarget {
+        field: field.to_string(),
+        node_index,
+        kind,
+        attr_template,
+    });
+}
+
+fn build_fx_index_map(targets: &[BindingTarget]) -> HashMap<usize, usize> {
+    let mut map = HashMap::new();
+    let mut next_index = 0usize;
+
+    for target in targets {
+        if map.contains_key(&target.node_index) {
+            continue;
+        }
+        map.insert(target.node_index, next_index);
+        next_index += 1;
+    }
+
+    map
+}
+
+fn to_template_bindings(
+    targets: &[BindingTarget],
+    fx_index_by_node: &HashMap<usize, usize>,
+) -> Vec<TemplateBinding> {
+    let mut out = Vec::with_capacity(targets.len());
+    for target in targets {
+        let Some(fx_index) = fx_index_by_node.get(&target.node_index).copied() else {
+            continue;
+        };
+
+        out.push(TemplateBinding {
+            field: target.field.clone(),
+            fx_index,
+            kind: target.kind.clone(),
+            attr_template: target.attr_template.clone(),
+        });
+    }
+    out
+}
+
+fn inject_fx_markers(template_html: &str, fx_index_by_node: &HashMap<usize, usize>) -> String {
+    if fx_index_by_node.is_empty() {
+        return template_html.to_string();
+    }
+
+    let mut out = String::with_capacity(template_html.len() + (fx_index_by_node.len() * 14));
+    let mut cursor = 0usize;
+    let mut node_index = 0usize;
+
+    while cursor < template_html.len() {
+        let Some(next_tag_rel) = template_html[cursor..].find('<') else {
+            out.push_str(&template_html[cursor..]);
+            break;
+        };
+
+        let next_tag = cursor + next_tag_rel;
+        out.push_str(&template_html[cursor..next_tag]);
+
+        let Some(tag_end_rel) = template_html[next_tag..].find('>') else {
+            out.push_str(&template_html[next_tag..]);
+            break;
+        };
+
+        let tag_end = next_tag + tag_end_rel;
+        let raw_tag = &template_html[next_tag..=tag_end];
+        let tag_src = template_html[next_tag + 1..tag_end].trim();
+
+        if tag_src.starts_with("!--") || tag_src.starts_with('!') || tag_src.starts_with('?') {
+            out.push_str(raw_tag);
+            cursor = tag_end + 1;
+            continue;
+        }
+
+        if tag_src.starts_with('/') {
+            out.push_str(raw_tag);
+            cursor = tag_end + 1;
+            continue;
+        }
+
+        let current_node_index = node_index;
+        node_index += 1;
+
+        if let Some(fx_index) = fx_index_by_node.get(&current_node_index).copied() {
+            out.push_str(&append_data_fx_attr(raw_tag, fx_index));
+        } else {
+            out.push_str(raw_tag);
         }
 
         cursor = tag_end + 1;
@@ -464,25 +585,31 @@ fn extract_template_bindings(template_html: &str, item_var: &str) -> Vec<Templat
     out
 }
 
-fn collect_text_bindings(
-    text: &str,
-    item_var: &str,
-    selector: String,
-    seen_fields: &mut Vec<String>,
-    out: &mut Vec<TemplateBinding>,
-) {
-    for field in extract_binding_fields(text, item_var) {
-        if seen_fields.iter().any(|existing| existing == &field) {
-            continue;
-        }
-        seen_fields.push(field.clone());
-        out.push(TemplateBinding {
-            field,
-            selector: selector.clone(),
-            kind: BindingKind::TextContent,
-            attr_template: None,
-        });
+fn append_data_fx_attr(raw_tag: &str, fx_index: usize) -> String {
+    if raw_tag.contains("data-fx=") {
+        return raw_tag.to_string();
     }
+
+    if raw_tag.ends_with("/>") {
+        let insert_at = raw_tag.len().saturating_sub(2);
+        return format!(
+            "{} data-fx=\"{}\"{}",
+            &raw_tag[..insert_at],
+            fx_index,
+            &raw_tag[insert_at..]
+        );
+    }
+
+    if raw_tag.ends_with('>') {
+        let insert_at = raw_tag.len().saturating_sub(1);
+        return format!(
+            "{} data-fx=\"{}\">",
+            &raw_tag[..insert_at],
+            fx_index
+        );
+    }
+
+    raw_tag.to_string()
 }
 
 fn extract_binding_fields(input: &str, item_var: &str) -> Vec<String> {
@@ -510,56 +637,6 @@ fn extract_binding_fields(input: &str, item_var: &str) -> Vec<String> {
         }
     }
     out
-}
-
-fn current_selector(stack: &[ElementCtx], current: &ElementCtx) -> String {
-    let mut parts = Vec::new();
-    for ctx in stack {
-        parts.push(selector_segment(ctx));
-    }
-    parts.push(selector_segment(current));
-    parts.join(" > ")
-}
-
-fn selector_from_stack(stack: &[ElementCtx]) -> String {
-    let mut parts = Vec::new();
-    for ctx in stack {
-        parts.push(selector_segment(ctx));
-    }
-    parts.join(" > ")
-}
-
-fn selector_segment(ctx: &ElementCtx) -> String {
-    if let Some(id) = &ctx.id {
-        return format!("{}#{}", ctx.tag, id);
-    }
-    if let Some(class_name) = &ctx.first_class {
-        return format!("{}.{}", ctx.tag, class_name);
-    }
-    format!("{}:nth-child({})", ctx.tag, ctx.nth_child)
-}
-
-fn attr_value(attrs: &str, name: &str) -> Option<String> {
-    parse_attrs_ordered_payload(attrs)
-        .into_iter()
-        .find(|(key, _)| key == name)
-        .map(|(_, value)| value)
-        .map(|val| val.trim().to_string())
-        .filter(|val| !val.is_empty())
-}
-
-fn first_class_from_attrs(attrs: &str) -> Option<String> {
-    attr_value(attrs, "class").and_then(|classes| {
-        classes
-            .split_whitespace()
-            .find(|class_name| {
-                !class_name.is_empty()
-                    && class_name
-                        .chars()
-                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-            })
-            .map(|class_name| class_name.to_string())
-    })
 }
 
 fn binding_re() -> &'static Regex {
@@ -688,14 +765,15 @@ mod tests {
     }
 
     #[test]
-    fn parse_each_extracts_text_bindings() {
+    fn parse_each_extracts_text_bindings_with_fx_index() {
         let html = "<each of=\"posts\" as=\"post\" key=\"id\"><p>{{post.title}}</p></each>";
         let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
             .expect("should parse text binding");
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "title");
         assert_eq!(sites[0].bindings[0].kind, BindingKind::TextContent);
-        assert_eq!(sites[0].bindings[0].selector, "p:nth-child(1)");
+        assert_eq!(sites[0].bindings[0].fx_index, 0);
+        assert!(sites[0].template_html.contains("data-fx=\"0\""));
     }
 
     #[test]
@@ -709,6 +787,7 @@ mod tests {
             sites[0].bindings[0].kind,
             BindingKind::Attribute("src".to_string())
         );
+        assert_eq!(sites[0].bindings[0].fx_index, 0);
         assert_eq!(
             sites[0].bindings[0].attr_template.as_deref(),
             Some("{{post.url}}")
@@ -728,6 +807,7 @@ mod tests {
 
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "own");
+        assert_eq!(sites[0].bindings[0].fx_index, 0);
         assert_eq!(
             sites[0].bindings[0].attr_template.as_deref(),
             Some("message {{post.own}}")
@@ -797,7 +877,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_each_text_binding_selector_not_duplicated() {
+    fn parse_each_binding_index_not_duplicated() {
         let html = "<each of=\"messages()\" as=\"message\" key=\"id\"><div class=\"message\"><span class=\"user\">{{message.username}}</span></div></each>";
         let (_, sites) = parse_each_blocks(
             html,
@@ -805,10 +885,34 @@ mod tests {
             "src/components/Chat/Chat.html",
             &registry(false),
         )
-        .expect("should parse nested text binding selector");
+        .expect("should parse nested text binding index");
 
         assert_eq!(sites[0].bindings.len(), 1);
         assert_eq!(sites[0].bindings[0].field, "username");
-        assert_eq!(sites[0].bindings[0].selector, "div.message > span.user");
+        assert_eq!(sites[0].bindings[0].fx_index, 0);
+        assert!(sites[0].template_html.contains("<span class=\"user\" data-fx=\"0\">"));
+    }
+
+    #[test]
+    fn parse_each_root_binding_gets_data_fx() {
+        let html =
+            "<each of=\"items\" as=\"item\" key=\"id\"><div class=\"row {{item.kind}}\"></div></each>";
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("root binding should parse");
+
+        assert_eq!(sites[0].bindings.len(), 1);
+        assert_eq!(sites[0].bindings[0].fx_index, 0);
+        assert!(sites[0].template_html.contains("<div class=\"row {{item.kind}}\" data-fx=\"0\"></div>"));
+    }
+
+    #[test]
+    fn parse_each_multiple_bindings_share_same_fx_marker_when_same_element() {
+        let html = "<each of=\"items\" as=\"item\" key=\"id\"><img src=\"{{item.src}}\" alt=\"{{item.alt}}\"></each>";
+        let (_, sites) = parse_each_blocks(html, "index", "src/pages/index.html", &registry(false))
+            .expect("multiple attrs should parse");
+
+        assert_eq!(sites[0].bindings.len(), 2);
+        assert_eq!(sites[0].bindings[0].fx_index, sites[0].bindings[1].fx_index);
+        assert!(sites[0].template_html.contains("data-fx=\"0\""));
     }
 }

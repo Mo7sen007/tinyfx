@@ -12,7 +12,7 @@
 //! - It does not evaluate conditions during compilation
 //! - It does not write generated files
 
-use super::codegen::{DirectiveContext, TsBuffer, ValueKind, detect_value_kind, qualify_expr};
+use super::codegen::{detect_value_kind, qualify_expr, DirectiveContext, TsBuffer, ValueKind};
 use super::conditional::IfSite;
 
 /// Generate TypeScript for one `<if>` site.
@@ -36,7 +36,7 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
         DirectiveContext::Page { .. } => {
             buf.line(&format!("function __toggle_{}(): void {{", site.id));
         }
-        DirectiveContext::Component => {
+        DirectiveContext::Component { .. } => {
             buf.line(&format!(
                 "function __toggle_{}(inst: any): void {{",
                 site.id
@@ -51,7 +51,7 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
                 site.id
             ));
         }
-        DirectiveContext::Component => {
+        DirectiveContext::Component { .. } => {
             // Scope to the mounted component root so multiple instances do not share wrappers.
             buf.line("const host = inst?.el as HTMLElement | undefined;");
             buf.line(&format!(
@@ -95,7 +95,7 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
         DirectiveContext::Page { .. } => {
             buf.line("if (name && registry[name]) registry[name](node as HTMLElement, ctx);");
         }
-        DirectiveContext::Component => {
+        DirectiveContext::Component { .. } => {
             buf.line(
                 "if (name && registry[name]) registry[name](node as HTMLElement, inst?.ctx as TinyFxContext);",
             );
@@ -128,7 +128,7 @@ pub fn generate_if_wiring(site: &IfSite, context: &DirectiveContext, buf: &mut T
                 buf.line(&format!("__toggle_{}();", site.id));
             }
         }
-        DirectiveContext::Component => {
+        DirectiveContext::Component { .. } => {
             if has_signal {
                 buf.line(&format!("effect(() => __toggle_{}(inst));", site.id));
             } else {
@@ -141,8 +141,8 @@ pub fn generate_if_wiring(site: &IfSite, context: &DirectiveContext, buf: &mut T
 
 fn qualify_if_expr(expr: &str, context: &DirectiveContext) -> String {
     match context {
-        DirectiveContext::Page { module_alias } => qualify_expr(expr, module_alias),
-        DirectiveContext::Component => qualify_component_expr(expr),
+        DirectiveContext::Page { module_alias, .. } => qualify_expr(expr, module_alias),
+        DirectiveContext::Component { .. } => qualify_component_expr(expr),
     }
 }
 
@@ -208,6 +208,7 @@ mod tests {
             &site,
             &DirectiveContext::Page {
                 module_alias: "PageModule0".to_string(),
+                release: false,
             },
             &mut buf,
         );
@@ -230,6 +231,7 @@ mod tests {
             &site,
             &DirectiveContext::Page {
                 module_alias: "PageModule0".to_string(),
+                release: false,
             },
             &mut buf,
         );

@@ -55,6 +55,9 @@ enum Command {
 
         #[arg(long, default_value_t = false)]
         phase_one_only: bool,
+        /// Enable production optimizations
+        #[arg(long, default_value_t = false)]
+        release: bool,
         /// Override the assets directory for this build
         #[arg(long)]
         assets_dir: Option<PathBuf>,
@@ -83,11 +86,13 @@ fn main() -> Result<()> {
         Command::Build {
             config: config_path,
             phase_one_only,
+            release,
             assets_dir,
         } => {
             let mut cfg = load_config(&config_path)?;
             // Allow enabling from either tinyfx.toml or CLI flag.
             cfg.phase_one_only = cfg.phase_one_only || phase_one_only;
+            cfg.release = cfg.release || release;
             if let Some(dir) = assets_dir {
                 cfg.assets_dir = dir.to_string_lossy().into_owned();
             }

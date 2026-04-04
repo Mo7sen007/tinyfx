@@ -16,62 +16,68 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 
 const PAGES_INDEX_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/pages/index.html"
+    "/templates/init/pages/index.html"
 ));
 const PAGES_INDEX_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/pages/index.ts"
+    "/templates/init/pages/index.ts"
 ));
 const FEATURE_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/components/FeatureCard/FeatureCard.html"
+    "/templates/init/components/FeatureCard/FeatureCard.html"
 ));
 const THEME_HTML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/components/ThemeToggle/ThemeToggle.html"
+    "/templates/init/components/ThemeToggle/ThemeToggle.html"
 ));
 const THEME_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/components/ThemeToggle/ThemeToggle.ts"
+    "/templates/init/components/ThemeToggle/ThemeToggle.ts"
 ));
 const THEME_STATE_TS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/state/theme.state.ts"
+    "/templates/init/lib/state/theme.state.ts"
 ));
 const MODELS_GITKEEP: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/models/.gitkeep"
+    "/templates/init/lib/models/.gitkeep"
 ));
 const DTO_GITKEEP: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/dto/.gitkeep"
+    "/templates/init/lib/dto/.gitkeep"
 ));
 const SERVICES_GITKEEP: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/lib/services/.gitkeep"
+    "/templates/init/lib/services/.gitkeep"
 ));
 const MAIN_CSS: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/styles/main.css"
+    "/templates/init/styles/main.css"
 ));
-const MAIN_TS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/main.ts"));
+const MAIN_TS: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/init/main.ts"
+));
 const TINYFX_TOML: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/tinyfx.toml"
+    "/templates/init/tinyfx.toml"
 ));
 const TSCONFIG_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/tsconfig.json"
+    "/templates/init/tsconfig.json"
 ));
 const PACKAGE_JSON: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/templates/package.json"
+    "/templates/init/package.json"
 ));
-const AGENTS_MD: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/AGENTS.md"));
+const AGENTS_MD: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/templates/init/AGENTS.md"
+));
 
 fn write(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {

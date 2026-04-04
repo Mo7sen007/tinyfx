@@ -14,7 +14,7 @@
 //! - It does not perform directive-specific validation
 //! - It does not emit full page glue by itself
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 /// Classifies an expression as signal-backed (`foo()`) or plain (`foo`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,9 +40,18 @@ pub enum LoopSource {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DirectiveContext {
     /// Directive belongs to a page module and reads from that module alias.
-    Page { module_alias: String },
+    Page { module_alias: String, release: bool },
     /// Directive belongs to a component instance and reads from `inst`.
-    Component,
+    Component { release: bool },
+}
+
+impl DirectiveContext {
+    /// Whether current generation target is release mode.
+    pub fn is_release(&self) -> bool {
+        match self {
+            Self::Page { release, .. } | Self::Component { release } => *release,
+        }
+    }
 }
 
 /// Generates a deterministic site identifier.
