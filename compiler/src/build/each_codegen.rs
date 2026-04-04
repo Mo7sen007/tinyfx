@@ -524,10 +524,35 @@ mod tests {
         let code = buf.build();
 
         assert!(code.contains("interface NodeRecord_index_each_0"));
+        // Node map is NOT emitted for Component context — it is created per-instance in the wrapper
+        assert!(!code.contains("const __nodes_index_each_0 = new Map"));
+        assert!(code.contains("function __reconcile_index_each_0"));
+        // Reconcile accepts the nodes map as a parameter for Component context
+        assert!(code.contains("__nodes_index_each_0: Map<string, NodeRecord_index_each_0>"));
+        assert!(!code.contains("function __mount_static_index_each_0"));
+    }
+
+    #[test]
+    fn codegen_page_context_emits_node_map() {
+        let site = mk_site(LoopSource::Signal("items".to_string()), KeyStrategy::Index);
+        let mut buf = TsBuffer::new();
+        generate_each_helpers(
+            &site,
+            &DirectiveContext::Page {
+                module_alias: "PageModule0".to_string(),
+                release: false,
+            },
+            &mut buf,
+        );
+        let code = buf.build();
+
+        assert!(code.contains("interface NodeRecord_index_each_0"));
+        // Node map IS emitted for Page context — module-level singleton
         assert!(code
             .contains("const __nodes_index_each_0 = new Map<string, NodeRecord_index_each_0>();"));
         assert!(code.contains("function __reconcile_index_each_0"));
-        assert!(!code.contains("function __mount_static_index_each_0"));
+        // Reconcile does NOT accept nodes map parameter for Page context
+        assert!(!code.contains("__nodes_index_each_0: Map"));
     }
 
     #[test]

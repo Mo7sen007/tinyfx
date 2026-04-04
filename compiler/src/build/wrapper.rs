@@ -71,6 +71,11 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
         source_expr(site),
         source_to_property(site)
     ));
+    // Per-instance node map so multiple component instances do not share state.
+    buf.line(&format!(
+        "const __nodes_{} = new Map<string, NodeRecord_{}>();",
+        site.id, site.id
+    ));
     // Use el.querySelector so every mounted component instance wires its own
     // directive container instead of capturing another instance on the page.
     buf.line(&format!(
@@ -83,8 +88,8 @@ fn generate_each_wiring(site: &EachSite, buf: &mut TsBuffer) {
     match &site.source {
         LoopSource::Signal(name) => {
             buf.line(&format!(
-                "effect(() => __reconcile_{}(__each_{}, inst.{}(), ctx));",
-                site.id, site.id, name
+                "effect(() => __reconcile_{}(__each_{}, inst.{}(), ctx, __nodes_{}));",
+                site.id, site.id, name, site.id
             ));
         }
         LoopSource::Plain(expr) => {
@@ -203,8 +208,11 @@ mod tests {
             if_sites: Vec::new(),
         });
 
+        assert!(
+            code.contains("const __nodes_chat_each_0 = new Map<string, NodeRecord_chat_each_0>();")
+        );
         assert!(code.contains(
-            "effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx));"
+            "effect(() => __reconcile_chat_each_0(__each_chat_each_0, inst.messages(), ctx, __nodes_chat_each_0));"
         ));
         assert!(!code.contains("__reconcile_chat_each_0(__each_chat_each_0, messages()"));
     }
