@@ -1,5 +1,5 @@
 // @tinyfx/runtime — barrel export
-export { signal, effect } from "./signals";
+export { signal, effect, type EffectHandle } from "./signals";
 export { registerInstance, destroyNode } from "./each";
 export { bindText, bindAttr, bindClass } from "./dom";
 export { createHttp } from "./http";

@@ -1,0 +1,9 @@
+<section class="if-host" tinyfx-dynamic>
+  <button id="toggle-details" type="button">Toggle details</button>
+
+  <if condition="showDetails()">
+    <DetailsPanel />
+  <else>
+    <p id="details-closed">Details are hidden</p>
+  </if>
+</section>

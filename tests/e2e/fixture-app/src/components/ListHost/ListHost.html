@@ -1,0 +1,10 @@
+<section class="list-host" tinyfx-dynamic>
+  <button id="add-item" type="button">Add item</button>
+  <button id="remove-item" type="button">Remove item</button>
+
+  <div class="list-items">
+    <each of="items()" as="item" key="id">
+      <ListItem label="{{item.label}}" />
+    </each>
+  </div>
+</section>

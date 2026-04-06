@@ -1,0 +1,17 @@
+<section class="list-conditional-host" tinyfx-dynamic>
+  <button id="list-conditional-toggle-alerts" type="button">Toggle all alerts</button>
+  <button id="list-conditional-show-alerts" type="button">Show all alerts</button>
+
+  <div class="list-conditional-items">
+    <each of="items()" as="item" key="id">
+      <article class="list-conditional-row" data-row-id="{{item.id}}">
+        <span class="row-label">{{item.label}}</span>
+        <if condition="showAlerts()">
+          <AlertTag text="{{item.alertText}}" />
+        <else>
+          <span class="no-alert" data-no-alert="{{item.id}}">no alert</span>
+        </if>
+      </article>
+    </each>
+  </div>
+</section>

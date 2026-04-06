@@ -173,7 +173,18 @@ Compiler enforcement:
 - sibling `.ts` present and no `tinyfx-dynamic`: build warning.
 
 ### Signals and Reactivity
-Signals are explicit callable state holders. `effect()` subscribes to signal reads.
+Signals are explicit callable state holders. `effect()` subscribes to signal reads and returns an unsubscribe handle.
+
+```ts
+import { effect } from "@tinyfx/runtime";
+
+const dispose = effect(() => {
+  // reactive logic
+});
+
+// later
+dispose();
+```
 
 ```ts
 // src/lib/state/chat.state.ts
@@ -518,6 +529,90 @@ Aliases in CLI:
 - `dto` alias: `d`
 - `interface` alias: `i`
 - `page` alias: `p`
+
+## Testing
+
+### Runtime + Compiler Unit Tests
+
+```bash
+cargo test --manifest-path compiler/Cargo.toml
+```
+
+### Headless Browser Tests (E2E)
+
+E2E tests live in `tests/e2e/` and use Playwright to validate TinyFX behavior in a real browser.
+
+```bash
+cd tests/e2e
+npm install
+npx playwright install chromium
+npx playwright test
+```
+
+The Playwright config (`playwright.config.ts`) runs the TinyFX compiler as part of the web server startup, so the fixture app is always built fresh before tests run.
+
+#### Fixture App
+
+The test fixture is a TinyFX app under `tests/e2e/fixture-app/`. It contains components that exercise the directive system:
+
+| Component | Pattern | Purpose |
+|---|---|---|
+| `ListHost` / `ListItem` | `<each>` with dynamic children | Validates that items added to a signal-driven list cause child components to mount |
+| `IfHost` / `DetailsPanel` | `<if>` with a dynamic child | Validates that a component mounts exactly once when its branch activates |
+| `NestedListHost` | nested `<each>` + `<if>` with `GroupBadge` and `ListItem` children | Validates multi-level directive mounting and cleanup |
+| `ConditionalListHost` | `<if>` wrapping `<each>` with `ListItem` + `StatusChip` per row | Validates multiple dynamic components per directive site |
+| `ListWithConditionalChildren` | `<each>` with `<if>` per row using `AlertTag` | Validates `<if>` branches nested inside `<each>` items |
+
+#### Test Scenarios
+
+The `directive-dynamic-mounting.spec.ts` file contains five specs:
+
+1. **`mounts dynamic children added by <each>`** — starts with 2 items, adds one, removes one. Asserts that `.list-item` count and `data-mounted="true"` count stay in sync at every step.
+
+2. **`mounts dynamic child in active <if> branch only once`** — toggles the branch on and off twice. Asserts `#details-mounted-count` stays at `1` on re-entry, confirming no duplicate mount.
+
+3. **`handles nested <each> with inner <if> and mounts only active branches`** — starts with 1 group (Team A) visible, adds inner items, toggles the `showMembers` signal off (hides all rows), toggles it back on, then clears all members. Asserts mount counts track visible rows.
+
+4. **`mounts multiple dynamic components inside <if> -> <each> without duplicate remounts`** — starts with 2 rows, adds a third, hides the whole list via `visibleItems` signal, shows it again. Asserts both `ListItem` and `StatusChip` counts stay in sync with the row count.
+
+5. **`updates <if> inside <each> and mounts only items with active branch`** — starts with alerts visible, toggles all alerts off (switches to the else branch), toggles them back on. Asserts `.alert-tag` and `.no-alert` counts are always complementary.
+
+#### Adding New Test Fixtures
+
+When adding a new scenario:
+
+1. Create component files under `tests/e2e/fixture-app/src/components/<Name>/`.
+2. Register the component in `tests/e2e/fixture-app/src/pages/index.html`.
+3. Add a new spec (or extend an existing one) in `tests/e2e/specs/`.
+4. Use `data-mounted` attributes on dynamic component roots so tests can assert mount state without depending on internal implementation details.
+
+```bash
+# Run a single test
+npx playwright test --grep "mounts dynamic children"
+```
+
+#### Test Pattern: Mount Markers
+
+Test components use a `data-mounted` attribute to signal that their `init()` ran:
+
+```html
+<!-- Component template -->
+<span class="my-badge" tinyfx-dynamic>
+  <span class="my-badge-mounted" data-mounted="false">pending</span>
+</span>
+```
+
+```ts
+// Component class
+init(): void {
+  const marker = this.el.querySelector<HTMLElement>(".my-badge-mounted");
+  if (!marker) return;
+  marker.dataset.mounted = "true";
+  marker.textContent = "mounted";
+}
+```
+
+Tests then assert `data-mounted="true"` counts match the expected visible component count. This decouples the test from signal state and framework internals.
 
 ## Configuration
 Active `tinyfx.toml` fields from `compiler/src/config.rs`:

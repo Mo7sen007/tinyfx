@@ -28,9 +28,39 @@ count.set(count() + 1);
 import { effect } from "@tinyfx/runtime";
 import { count } from "@state/counter.state";
 
-effect(() => {
+const dispose = effect(() => {
   console.log("count changed", count());
 });
+
+// later, when no longer needed:
+dispose();
+```
+
+`effect()` returns an unsubscribe function (`EffectHandle`).
+
+### Cleanup Pattern in Components
+
+You are responsible for disposing effects created in component code.
+
+```ts
+import { effect } from "@tinyfx/runtime";
+import type { TinyFxContext } from "@tinyfx/runtime";
+
+export class Counter {
+  private disposeCount?: () => void;
+
+  constructor(public el: HTMLElement, public ctx: TinyFxContext) {}
+
+  init(): void {
+    this.disposeCount = effect(() => {
+      // reactive logic
+    });
+  }
+
+  destroy(): void {
+    this.disposeCount?.();
+  }
+}
 ```
 
 ## Directive Integration

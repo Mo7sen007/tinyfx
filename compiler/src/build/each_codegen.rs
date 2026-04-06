@@ -410,6 +410,14 @@ fn emit_dynamic_component_mount(root_expr: &str, component_names: &[String], buf
     for name in component_names {
         let mount_fn = format!("__mount_{}", name);
         buf.line(&format!(
+            "if ({}.matches(\"[data-component='{}']\")) {{",
+            root_expr, name
+        ));
+        buf.indent();
+        buf.line(&format!("{}({} as HTMLElement, ctx);", mount_fn, root_expr));
+        buf.dedent();
+        buf.line("}");
+        buf.line(&format!(
             "{}.querySelectorAll<HTMLElement>(\"[data-component='{}']\").forEach((node) => {{",
             root_expr, name
         ));

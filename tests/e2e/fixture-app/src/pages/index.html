@@ -1,0 +1,33 @@
+<page route="/" title="TinyFX E2E Tests">
+  <head>
+    <meta name="description" content="End-to-end test fixture for TinyFX">
+  </head>
+  <main>
+    <h1>E2E Tests</h1>
+
+    <section id="each-test">
+      <h2>Each Directive</h2>
+      <ListHost />
+    </section>
+
+    <section id="if-test">
+      <h2>If Directive</h2>
+      <IfHost />
+    </section>
+
+    <section id="nested-each-if-test">
+      <h2>Nested Each + If</h2>
+      <NestedListHost />
+    </section>
+
+    <section id="if-each-multi-test">
+      <h2>If + Each + Multi Components</h2>
+      <ConditionalListHost />
+    </section>
+
+    <section id="each-if-inside-test">
+      <h2>Each With Conditional Children</h2>
+      <ListWithConditionalChildren />
+    </section>
+  </main>
+</page>

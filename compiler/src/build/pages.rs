@@ -149,11 +149,18 @@ fn parse_and_expand_page(
         .get("layout")
         .cloned()
         .filter(|layout| !layout.trim().is_empty());
+    let page_title = page_attrs
+        .get("title")
+        .cloned()
+        .filter(|t| !t.trim().is_empty());
     let body_without_script = strip_tinyfx_script(&page_inner_html, source_path);
 
-    warn_missing_components(&body_without_script, source_path, component_registry);
+    // Extract <head> content early, before component expansion.
+    let (user_head, body_without_head) = extract_head_content(&body_without_script);
 
-    let expanded_body = expand_component_tags(&body_without_script, component_registry).with_context(|| {
+    warn_missing_components(&body_without_head, source_path, component_registry);
+
+    let expanded_body = expand_component_tags(&body_without_head, component_registry).with_context(|| {
         format!(
             "failed to expand page components in '{}'\n  → inspect the referenced component tags for invalid names",
             source_path.display()
@@ -206,7 +213,12 @@ fn parse_and_expand_page(
     let template_sites =
         collect_template_sites_for_page(&inlined_icons, &each_sites, component_registry);
     let html_with_templates = inject_each_templates(
-        &build_html_shell(&inlined_icons, &page_name),
+        &build_html_shell(
+            &inlined_icons,
+            &page_name,
+            &user_head,
+            page_title.as_deref(),
+        ),
         &template_sites,
     );
 
@@ -256,6 +268,28 @@ fn extract_page_element(
         parse_attrs(attrs_str),
         source_html[open_end..close_start].to_string(),
     ))
+}
+
+/// Extract `<head>...</head>` content from the page body.
+///
+/// Returns `(head_content, body_without_head)`. If no `<head>` block is found,
+/// `head_content` is empty and the body is returned unchanged.
+fn extract_head_content(html: &str) -> (String, String) {
+    static HEAD_RE: OnceLock<Regex> = OnceLock::new();
+    let re = HEAD_RE.get_or_init(|| Regex::new(r"(?s)<head[^>]*>(.*?)</head>").unwrap());
+
+    if let Some(caps) = re.captures(html) {
+        let head_content = caps
+            .get(1)
+            .map(|m| m.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        let body_without_head = re.replace(html, "").trim().to_string();
+        (head_content, body_without_head)
+    } else {
+        (String::new(), html.to_string())
+    }
 }
 
 fn strip_tinyfx_script(inner_html: &str, source_path: &Path) -> String {
@@ -308,21 +342,101 @@ fn warn_missing_components(
     }
 }
 
-fn build_html_shell(body: &str, page_name: &str) -> String {
+fn build_html_shell(
+    body: &str,
+    page_name: &str,
+    user_head: &str,
+    page_title: Option<&str>,
+) -> String {
     if body.trim_start().starts_with("<!") || body.contains("<html") {
         return body.to_string();
     }
 
-    let title = title_from_page_name(page_name);
+    let title = page_title
+        .map(|t| t.to_string())
+        .unwrap_or_else(|| title_from_page_name(page_name));
+
+    let head = merge_head(user_head, &title);
 
     format!(
-        "<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\">\
-         <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-         <title>{}</title>\
-         <link rel=\"stylesheet\" href=\"/css/main.css\">\n</head>\n\
-         <body>\n{}\n<script type=\"module\" src=\"/js/main.js\"></script>\n</body>\n</html>",
-        title, body
+        "<!DOCTYPE html>\n<html lang=\"en\">\n{}\n<body>\n{}\n<script type=\"module\" src=\"/js/main.js\"></script>\n</body>\n</html>",
+        head, body
     )
+}
+
+/// Merge user-provided head content with required TinyFX essentials.
+///
+/// Rules:
+/// - `<meta charset>` is always set to UTF-8 (user overrides ignored)
+/// - `<meta name="viewport">` is always included (user overrides ignored)
+/// - `<title>` uses the resolved title
+/// - User `<link rel="stylesheet">` tags are appended; `/css/main.css` is always included
+/// - All other user head content is passed through as-is
+fn merge_head(user_head: &str, title: &str) -> String {
+    let mut head = String::from("<head>");
+
+    // Essentials that must be present
+    head.push_str("<meta charset=\"UTF-8\">");
+    head.push_str("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+    head.push_str(&format!("<title>{}</title>", escape_html(title)));
+
+    // Collect user stylesheet links so we can deduplicate main.css
+    let mut user_stylesheets = Vec::new();
+    let mut has_main_css = false;
+
+    // Parse user head content line by line for stylesheets, pass through everything else
+    for line in user_head.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        if let Some(href) = extract_stylesheet_href(trimmed) {
+            if href == "/css/main.css" {
+                has_main_css = true;
+            }
+            user_stylesheets.push(trimmed.to_string());
+        } else {
+            head.push_str(trimmed);
+        }
+    }
+
+    // Append user stylesheets
+    for link in &user_stylesheets {
+        head.push_str(link);
+    }
+
+    // Always include main.css
+    if !has_main_css {
+        head.push_str("<link rel=\"stylesheet\" href=\"/css/main.css\">");
+    }
+
+    head.push_str("\n</head>");
+    head
+}
+
+/// If the line is a `<link rel="stylesheet" href="...">`, return the href.
+fn extract_stylesheet_href(line: &str) -> Option<String> {
+    if !line.to_ascii_lowercase().contains("rel=\"stylesheet\"")
+        && !line.to_ascii_lowercase().contains("rel='stylesheet'")
+    {
+        return None;
+    }
+
+    static HREF_RE: OnceLock<Regex> = OnceLock::new();
+    let re = HREF_RE.get_or_init(|| Regex::new(r#"href\s*=\s*["']([^"']+)["']"#).unwrap());
+
+    re.captures(line)
+        .and_then(|caps| caps.get(1))
+        .map(|m| m.as_str().to_string())
+}
+
+/// Escape HTML special characters in text content.
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 fn ensure_semantic_html(body: &str, page_name: &str) -> (String, Vec<String>) {
@@ -335,13 +449,6 @@ fn ensure_semantic_html(body: &str, page_name: &str) -> (String, Vec<String>) {
             page_name
         ));
         output = format!("<main>\n{}\n</main>", output);
-    }
-
-    if !contains_tag(&output, "title") {
-        warnings.push(format!(
-            "page '{}' does not include a <title> tag; TinyFX injected a default title",
-            page_name
-        ));
     }
 
     (output, warnings)
@@ -472,7 +579,76 @@ mod tests {
         let (out, warnings) = ensure_semantic_html("<section>hello</section>", "index");
         assert!(out.contains("<main>"));
         assert!(warnings.iter().any(|w| w.contains("<main>")));
-        assert!(warnings.iter().any(|w| w.contains("<title>")));
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn extract_head_content_finds_head_block() {
+        let html = "<head>\n  <meta name=\"description\" content=\"test\">\n</head>\n<main><h1>Hello</h1></main>";
+        let (head, body) = extract_head_content(html);
+        assert!(head.contains("description"));
+        assert!(body.contains("<main>"));
+        assert!(!body.contains("<head>"));
+    }
+
+    #[test]
+    fn extract_head_content_returns_empty_when_no_head() {
+        let html = "<main><h1>Hello</h1></main>";
+        let (head, body) = extract_head_content(html);
+        assert!(head.is_empty());
+        assert_eq!(body, html);
+    }
+
+    #[test]
+    fn merge_head_includes_essentials() {
+        let head = merge_head("", "My Page");
+        assert!(head.contains("<meta charset=\"UTF-8\">"));
+        assert!(head.contains("name=\"viewport\""));
+        assert!(head.contains("<title>My Page</title>"));
+        assert!(head.contains("href=\"/css/main.css\""));
+    }
+
+    #[test]
+    fn merge_head_passes_through_user_content() {
+        let user_head = "<meta name=\"description\" content=\"A test page\">";
+        let head = merge_head(user_head, "My Page");
+        assert!(head.contains("description"));
+        assert!(head.contains("A test page"));
+    }
+
+    #[test]
+    fn merge_head_appends_user_stylesheets() {
+        let user_head = "<link rel=\"stylesheet\" href=\"/css/blog.css\">";
+        let head = merge_head(user_head, "Blog");
+        assert!(head.contains("href=\"/css/blog.css\""));
+        assert!(head.contains("href=\"/css/main.css\""));
+    }
+
+    #[test]
+    fn merge_head_avoids_duplicate_main_css() {
+        let user_head = "<link rel=\"stylesheet\" href=\"/css/main.css\">";
+        let head = merge_head(user_head, "Page");
+        let count = head.matches("href=\"/css/main.css\"").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn build_html_shell_uses_page_title_attr() {
+        let html = build_html_shell("<main>hi</main>", "blog-post", "", Some("Custom Title"));
+        assert!(html.contains("<title>Custom Title</title>"));
+        assert!(!html.contains("<title>Blog Post</title>"));
+    }
+
+    #[test]
+    fn build_html_shell_falls_back_to_filename() {
+        let html = build_html_shell("<main>hi</main>", "blog-post", "", None);
+        assert!(html.contains("<title>Blog Post</title>"));
+    }
+
+    #[test]
+    fn build_html_shell_escapes_title() {
+        let html = build_html_shell("<main>hi</main>", "page", "", Some("Tom & Jerry"));
+        assert!(html.contains("<title>Tom &amp; Jerry</title>"));
     }
 
     #[test]

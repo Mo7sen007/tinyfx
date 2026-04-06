@@ -14,7 +14,10 @@ Pages live in `src/pages/` with `<page>` root.
 
 ```html
 <!-- src/pages/blog.html -->
-<page route="/blog/:slug" layout="">
+<page route="/blog/:slug" title="Blog">
+  <head>
+    <meta name="description" content="My blog">
+  </head>
   <main>
     <h1>Blog</h1>
   </main>
@@ -34,6 +37,37 @@ export function init(_el: HTMLElement, ctx: TinyFxContext): void {
 ```
 
 If `route` is omitted, the route is derived from the page file path.
+
+### Page Attributes
+
+| Attribute | Required | Purpose |
+|---|---|---|
+| `route` | No | URL path pattern. If omitted, derived from filename. |
+| `title` | No | Text used in the `<title>` tag. Falls back to filename-derived title. |
+| `layout` | No | Wrap page body in a layout component. |
+
+### `<head>` Block
+
+Pages can include a `<head>` block inside the `<page>` element. The compiler merges user head content with required essentials:
+
+```html
+<page route="/blog/:slug" title="Blog Post">
+  <head>
+    <meta name="description" content="A post about routing">
+    <meta property="og:image" content="/assets/og.png">
+    <link rel="stylesheet" href="/css/blog.css">
+  </head>
+  <main>...</main>
+</page>
+```
+
+The compiler always ensures:
+- `<meta charset="UTF-8">` is present
+- `<meta name="viewport">` is present
+- `<title>` is set (from `title` attr, user `<title>`, or filename)
+- `<link rel="stylesheet" href="/css/main.css">` is present (duplicates removed)
+
+All other user head content is passed through as-is.
 
 ## Runtime Routing Helpers
 From `@tinyfx/runtime`:

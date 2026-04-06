@@ -1,0 +1,15 @@
+body {
+  font-family: sans-serif;
+}
+
+.list-items {
+  margin-top: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.list-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}

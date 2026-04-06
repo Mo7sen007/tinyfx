@@ -6,6 +6,8 @@ Runtime helper exports from `@tinyfx/runtime`:
 - `bindClass`
 
 These helpers are thin wrappers around `effect()` and are used for direct DOM synchronization.
+Each helper returns an unsubscribe function (`EffectHandle`) so you can tear down
+bindings when a component is destroyed.
 
 ## `bindText`
 ```ts
@@ -14,7 +16,8 @@ import { bindText, signal } from "@tinyfx/runtime";
 
 const value = signal("ready");
 const el = document.querySelector("#status") as HTMLElement;
-bindText(el, () => value());
+const dispose = bindText(el, () => value());
+// later: dispose()
 ```
 
 ## `bindAttr`
@@ -24,7 +27,8 @@ import { bindAttr, signal } from "@tinyfx/runtime";
 
 const theme = signal("light");
 const el = document.querySelector("#theme-badge") as HTMLElement;
-bindAttr(el, "data-theme", () => theme());
+const dispose = bindAttr(el, "data-theme", () => theme());
+// later: dispose()
 ```
 
 ## `bindClass`
@@ -34,7 +38,8 @@ import { bindClass, signal } from "@tinyfx/runtime";
 
 const open = signal(false);
 const el = document.querySelector("#modal") as HTMLElement;
-bindClass(el, "is-open", () => open());
+const dispose = bindClass(el, "is-open", () => open());
+// later: dispose()
 ```
 
 Use `effect()` directly when helper signatures do not match required logic.

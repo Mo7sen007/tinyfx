@@ -1,0 +1,19 @@
+{
+  "name": "tinyfx-e2e-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "install:browsers": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "esbuild": "^0.25.0",
+    "serve": "^14.2.4",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@tinyfx/runtime": "file:../../runtime"
+  }
+}

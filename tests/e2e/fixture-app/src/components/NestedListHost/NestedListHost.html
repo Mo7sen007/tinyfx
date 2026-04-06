@@ -1,0 +1,24 @@
+<section class="nested-host" tinyfx-dynamic>
+  <button id="nested-add-inner" type="button">Add inner item to Team A</button>
+  <button id="nested-toggle-members" type="button">Toggle members visibility</button>
+  <button id="nested-clear-members" type="button">Clear all members</button>
+
+  <div class="groups">
+    <each of="groups()" as="group" key="id">
+      <section class="group-block" data-group-id="{{group.id}}">
+        <h3>{{group.name}}</h3>
+        <GroupBadge label="{{group.name}}" />
+
+        <if condition="showMembers()">
+          <div class="member-list" data-group-members="{{group.id}}">
+            <each of="members()" as="member" key="id">
+              <ListItem label="{{member.label}}" />
+            </each>
+          </div>
+        <else>
+          <p class="members-hidden" data-hidden-group="{{group.id}}">members hidden</p>
+        </if>
+      </section>
+    </each>
+  </div>
+</section>

@@ -147,7 +147,7 @@ All exports come from `@tinyfx/runtime`:
 | Export | Purpose |
 |---|---|
 | `signal<T>(v: T)` | Create a reactive signal; call to read, `.set()` to write |
-| `effect(fn)` | Run `fn` and re-run when any signal read inside changes |
+| `effect(fn)` | Run `fn`, re-run on signal updates, and return a cleanup handle |
 
 ### DOM Bindings
 | Export | Purpose |
@@ -236,14 +236,18 @@ Key mechanics:
 ### Effects
 
 ```typescript
-effect(() => {
+const dispose = effect(() => {
   console.log(`count = ${count()}`); // Logs on creation and whenever count changes
 });
+
+// later
+dispose();
 ```
 
 - Every signal read while `fn` runs is tracked
 - The effect re-runs when any of those signal values change
 - Effects run immediately when created
+- `effect()` returns an unsubscribe function; call it in `destroy()` when needed
 
 ### DOM Bindings
 
@@ -258,6 +262,10 @@ bindAttr(document.body, "data-theme", () => isDark() ? "dark" : "light");
 
 // bindClass — toggles a CSS class based on a boolean signal
 bindClass(panel, "is-open", () => open());
+
+// all bind helpers return an unsubscribe handle
+const stop = bindText(span, () => `Count: ${count()}`);
+stop();
 ```
 
 ## Pages
@@ -266,7 +274,10 @@ Pages are HTML files in `src/pages/` with a `<page>` root element:
 
 ```html
 <!-- src/pages/index.html -->
-<page route="/" layout="">
+<page route="/" title="Home">
+  <head>
+    <meta name="description" content="My app homepage">
+  </head>
   <main class="home">
     <h1>Welcome</h1>
     <Chat />
@@ -276,12 +287,47 @@ Pages are HTML files in `src/pages/` with a `<page>` root element:
 
 ```html
 <!-- src/pages/blog-post.html -->
-<page route="/blog/:slug" layout="">
+<page route="/blog/:slug" title="Blog Post">
+  <head>
+    <meta name="description" content="My blog post">
+    <meta property="og:image" content="/assets/blog-og.png">
+    <link rel="stylesheet" href="/css/blog.css">
+  </head>
   <main class="blog-post">
     <h1>Blog Post</h1>
     <article>Content here</article>
   </main>
 </page>
+```
+
+### Page Attributes
+
+| Attribute | Purpose |
+|---|---|
+| `route` | URL path for the hard router (required) |
+| `title` | Page title used in `<title>` tag (optional, falls back to filename) |
+| `layout` | Wrap page body in a layout component (optional) |
+
+### `<head>` Block
+
+Pages can include a `<head>` block inside `<page>`. The compiler merges it with required essentials:
+
+- `<meta charset="UTF-8">` — always present
+- `<meta name="viewport">` — always present
+- `<title>` — from `title` attr, user `<title>`, or derived from filename
+- `<link rel="stylesheet" href="/css/main.css">` — always present
+- User content — passed through as-is (meta tags, stylesheets, scripts, etc.)
+
+If no `<head>` block is provided, the compiler generates a minimal one with essentials.
+
+### Per-Page Stylesheets
+
+Add `<link rel="stylesheet">` in the `<head>` block. The compiler appends them and always includes `/css/main.css` (duplicates are removed):
+
+```html
+<head>
+  <link rel="stylesheet" href="/css/blog.css">
+</head>
 ```
 
 Page TypeScript files export an `init` function:
@@ -336,7 +382,10 @@ Static components are expanded at build time into plain HTML. No `.ts` file need
 Usage in a page (compiler substitutes `{{...}}` with attribute values):
 
 ```html
-<page route="/" layout="">
+<page route="/" title="Home" layout="">
+  <head>
+    <meta name="description" content="My app homepage">
+  </head>
   <FeatureCard icon="fa-star" title="Fast" description="Blazing speed" />
 </page>
 ```
@@ -807,6 +856,57 @@ Generated file locations:
 | Adding `.ts` file to a static component | Keep static HTML-only; use dynamic marker when behavior needed |
 | Importing `TinyFxContext` from nonexistent paths | `import type { TinyFxContext } from "@tinyfx/runtime"` |
 | Using relative imports to reach `src/lib/*` | Use `@models/*`, `@services/*`, etc. |
+
+## Testing
+
+### E2E Headless Browser Tests
+
+TinyFX uses Playwright for headless browser testing. Test code lives in `tests/e2e/`.
+
+```bash
+cd tests/e2e
+npm install
+npx playwright install chromium
+npx playwright test
+```
+
+The Playwright config (`playwright.config.ts`) automatically runs `tinyfx build` before serving, so the fixture app is always fresh.
+
+#### Fixture App
+
+Test components live in `tests/e2e/fixture-app/src/components/`. Each uses a `data-mounted` attribute pattern so tests can assert mount state independently of framework internals:
+
+```html
+<!-- Component template -->
+<span class="my-badge" tinyfx-dynamic>
+  <span class="my-badge-mounted" data-mounted="false">pending</span>
+</span>
+```
+
+```ts
+// Component class
+init(): void {
+  const marker = this.el.querySelector<HTMLElement>(".my-badge-mounted");
+  if (!marker) return;
+  marker.dataset.mounted = "true";
+  marker.textContent = "mounted";
+}
+```
+
+#### Test Scenarios (in `tests/e2e/specs/directive-dynamic-mounting.spec.ts`)
+
+| Test | Pattern | Validates |
+|---|---|---|
+| `mounts dynamic children added by <each>` | `<each>` + dynamic child | Mount count tracks items at every step |
+| `mounts dynamic child in active <if> branch only once` | `<if>` + dynamic child | No duplicate mount on branch re-entry |
+| `handles nested <each> with inner <if>` | nested `<each>` + `<if>` | Multi-level directive mounting |
+| `mounts multiple dynamic components inside <if> -> <each>` | `<if>` wrapping `<each>` | Multiple components per directive site |
+| `updates <if> inside <each>` | `<each>` with `<if>` per row | Branches nested inside list items |
+
+Adding a new test fixture:
+1. Create component files under `tests/e2e/fixture-app/src/components/<Name>/`
+2. Register the component in `tests/e2e/fixture-app/src/pages/index.html`
+3. Add or extend specs in `tests/e2e/specs/`
 
 ## Working Discipline for Agents
 

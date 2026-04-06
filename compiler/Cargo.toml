@@ -1,6 +1,6 @@
 [package]
 name = "compiler"
-version = "0.9.7"
+version = "0.9.8"
 edition = "2024"
 
 [[bin]]
@@ -24,3 +24,4 @@ mime_guess  = "2"
 notify      = "8.2"          # file watching
 tokio-tungstenite = "0.28" # websockets for live reload
 futures-util = "0.3"
+flate2 = "1"

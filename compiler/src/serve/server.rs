@@ -13,11 +13,14 @@
 //! - It does not run build phases directly
 
 use std::convert::Infallible;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
 use bytes::Bytes;
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use http_body_util::Full;
 use hyper::body::Incoming;
 use hyper::service::service_fn;
@@ -136,6 +139,16 @@ async fn serve_file(
                     Bytes::from(raw)
                 };
 
+                // Compress if client accepts gzip and content type is text-based.
+                let compressible = is_compressible_mime(&mime);
+                let accepts_gzip = header_contains(&req, "accept-encoding", "gzip");
+                let (body, content_encoding) = if compressible && accepts_gzip {
+                    let compressed = gzip_compress(&body);
+                    (Bytes::from(compressed), Some("gzip"))
+                } else {
+                    (body, None)
+                };
+
                 let mut response = Response::new(Full::new(body));
                 *response.status_mut() = StatusCode::OK;
                 response.headers_mut().insert(
@@ -144,6 +157,12 @@ async fn serve_file(
                         hyper::header::HeaderValue::from_static("application/octet-stream"),
                     ),
                 );
+                if let Some(enc) = content_encoding {
+                    response.headers_mut().insert(
+                        hyper::header::CONTENT_ENCODING,
+                        hyper::header::HeaderValue::from_static(enc),
+                    );
+                }
                 Ok(response)
             }
             Err(_) => {
@@ -165,4 +184,38 @@ async fn serve_file(
         );
         Ok(response)
     }
+}
+
+/// Returns true if the MIME type is text-based and benefits from compression.
+fn is_compressible_mime(mime: &mime_guess::Mime) -> bool {
+    let essence = mime.essence_str();
+    matches!(
+        essence,
+        "text/html"
+            | "text/css"
+            | "text/javascript"
+            | "application/javascript"
+            | "application/json"
+            | "text/xml"
+            | "application/xml"
+            | "image/svg+xml"
+    )
+}
+
+/// Check if a request header contains a given substring (case-insensitive).
+fn header_contains<K: AsRef<str>>(req: &Request<Incoming>, key: K, value: &str) -> bool {
+    let Some(header) = req.headers().get(key.as_ref()) else {
+        return false;
+    };
+    let Ok(val) = header.to_str() else {
+        return false;
+    };
+    val.to_ascii_lowercase().contains(value)
+}
+
+/// Compress bytes with gzip at default compression level.
+fn gzip_compress(data: &[u8]) -> Vec<u8> {
+    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+    encoder.write_all(data).expect("gzip write failed");
+    encoder.finish().expect("gzip finish failed")
 }

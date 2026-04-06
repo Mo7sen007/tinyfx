@@ -1,0 +1,19 @@
+<section class="conditional-list-host" tinyfx-dynamic>
+  <button id="conditional-toggle-list" type="button">Toggle conditional list</button>
+  <button id="conditional-add-item" type="button">Add conditional item</button>
+
+  <div class="conditional-list">
+    <each of="visibleItems()" as="item" key="id">
+      <article class="conditional-row" data-item-id="{{item.id}}">
+        <ListItem label="{{item.label}}" />
+        <StatusChip value="{{item.status}}" />
+      </article>
+    </each>
+  </div>
+
+  <if condition="showList()">
+    <p id="conditional-list-active">conditional list active</p>
+  <else>
+    <p id="conditional-list-hidden">conditional list hidden</p>
+  </if>
+</section>

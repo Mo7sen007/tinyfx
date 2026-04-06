@@ -1,0 +1,12 @@
+{
+  "name": "tinyfx-fixture-app",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@tinyfx/runtime": "file:../../../runtime"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0"
+  }
+}

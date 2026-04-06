@@ -1,0 +1,6 @@
+entry = "src"
+entry_ts = "src/main.ts"
+out_dir = "dist"
+components = "src/components"
+styles = "src/styles"
+pages = "src/pages"
