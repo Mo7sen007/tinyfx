@@ -8,7 +8,6 @@ import { initLifecycle } from "./router/lifecycle";
 import { highlightActiveLinks } from "./router/active-links";
 import { navigate } from "./router/index";
 import { setParams } from "./router/params";
-import { mountComponents } from "./registry";
 import { runPageInit } from "./page-registry";
 
 declare const __DEV__: boolean;
@@ -18,15 +17,23 @@ export interface InitConfig {
   setupDirectives?: (ctx: TinyFxContext) => void;
 }
 
-export interface InitResult {
-  matchedPath: string;
-  params: Record<string, string>;
-  instances: any[];
-}
-
 let initialized = false;
 
-export function init(config: InitConfig): InitResult | null {
+/**
+ * Bootstrap the application for the current URL.
+ *
+ * Matches the pathname against registered routes, initializes lifecycle hooks,
+ * highlights active links, sets route params, runs directive setup, and calls
+ * page-level init().
+ *
+ * Component mounting is handled by the generated code — `init()` returns a
+ * `TinyFxContext` that the generated bootstrap uses to mount components
+ * directly.
+ *
+ * @param config - Route map and optional directive setup
+ * @returns A TinyFxContext for component mounting, or null if no route matched
+ */
+export function init(config: InitConfig): TinyFxContext | null {
   if (initialized) return null;
   initialized = true;
 
@@ -61,11 +68,10 @@ export function init(config: InitConfig): InitResult | null {
   setParams(params);
 
   const ctx: TinyFxContext = { params, navigate };
-  const instances = mountComponents(ctx);
   if (config.setupDirectives) {
     config.setupDirectives(ctx);
   }
   runPageInit(matchedPath, ctx);
 
-  return { matchedPath, params, instances };
+  return ctx;
 }

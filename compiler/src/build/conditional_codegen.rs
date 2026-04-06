@@ -31,10 +31,15 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
         .map(|v| v as isize)
         .unwrap_or(-1);
 
+    let all_dynamic_names = collect_all_dynamic_names(site);
+
     buf.line(&format!("// <if> site {}", site.id));
     match context {
         DirectiveContext::Page { .. } => {
-            buf.line(&format!("function __toggle_{}(): void {{", site.id));
+            buf.line(&format!(
+                "function __toggle_{}(ctx: TinyFxContext): void {{",
+                site.id
+            ));
         }
         DirectiveContext::Component { .. } => {
             buf.line(&format!(
@@ -52,7 +57,6 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
             ));
         }
         DirectiveContext::Component { .. } => {
-            // Scope to the mounted component root so multiple instances do not share wrappers.
             buf.line("const host = inst?.el as HTMLElement | undefined;");
             buf.line(&format!(
                 "const wrapper = host?.querySelector(\"[data-if='{}']\") as HTMLElement | null;",
@@ -88,26 +92,56 @@ pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut 
     buf.indent();
     buf.line("const activeIndex = shown >= 0 ? shown : elseBranchIndex;");
     buf.line("const activeBranch = branches[activeIndex] as HTMLElement;");
-    buf.line("activeBranch.querySelectorAll(\"[data-component]:not([data-tinyfx-mounted])\").forEach((node) => {");
-    buf.indent();
-    buf.line("const name = node.getAttribute(\"data-component\");");
-    match context {
-        DirectiveContext::Page { .. } => {
-            buf.line("if (name && registry[name]) registry[name](node as HTMLElement, ctx);");
-        }
-        DirectiveContext::Component { .. } => {
-            buf.line(
-                "if (name && registry[name]) registry[name](node as HTMLElement, inst?.ctx as TinyFxContext);",
-            );
-        }
-    }
-    buf.dedent();
-    buf.line("});");
+    emit_if_branch_mounts(&all_dynamic_names, context, buf);
     buf.dedent();
     buf.line("}");
     buf.dedent();
     buf.line("}");
     buf.blank();
+}
+
+fn collect_all_dynamic_names(site: &IfSite) -> Vec<String> {
+    let mut names = Vec::new();
+    for branch in &site.branches {
+        for name in &branch.dynamic_component_names {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    }
+    names
+}
+
+fn emit_if_branch_mounts(names: &[String], context: &DirectiveContext, buf: &mut TsBuffer) {
+    if names.is_empty() {
+        return;
+    }
+
+    for name in names {
+        let mount_fn = format!("__mount_{}", name);
+        match context {
+            DirectiveContext::Page { .. } => {
+                buf.line(&format!(
+                    "activeBranch.querySelectorAll<HTMLElement>(\"[data-component='{}']\").forEach((node) => {{",
+                    name
+                ));
+                buf.indent();
+                buf.line(&format!("{}(node, ctx);", mount_fn));
+                buf.dedent();
+                buf.line("});");
+            }
+            DirectiveContext::Component { .. } => {
+                buf.line(&format!(
+                    "activeBranch.querySelectorAll<HTMLElement>(\"[data-component='{}']\").forEach((node) => {{",
+                    name
+                ));
+                buf.indent();
+                buf.line(&format!("{}(node, inst?.ctx as TinyFxContext);", mount_fn));
+                buf.dedent();
+                buf.line("});");
+            }
+        }
+    }
 }
 
 /// Generate runtime execution wiring for one `<if>` site.
@@ -123,9 +157,9 @@ pub fn generate_if_wiring(site: &IfSite, context: &DirectiveContext, buf: &mut T
     match context {
         DirectiveContext::Page { .. } => {
             if has_signal {
-                buf.line(&format!("effect(() => __toggle_{}());", site.id));
+                buf.line(&format!("effect(() => __toggle_{}(ctx));", site.id));
             } else {
-                buf.line(&format!("__toggle_{}();", site.id));
+                buf.line(&format!("__toggle_{}(ctx);", site.id));
             }
         }
         DirectiveContext::Component { .. } => {
@@ -212,7 +246,9 @@ mod tests {
             },
             &mut buf,
         );
-        assert!(buf.build().contains("effect(() => __toggle_index_if_0())"));
+        assert!(buf
+            .build()
+            .contains("effect(() => __toggle_index_if_0(ctx))"));
     }
 
     #[test]

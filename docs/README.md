@@ -7,6 +7,7 @@ This folder contains topic-focused documentation that matches the current implem
 - `getting-started.md`: Install, scaffold, run, and first build workflow.
 - `cli.md`: Current CLI commands, flags, and generator behavior.
 - `components.md`: Static vs dynamic components, wrappers, `<each>`, and `<if>`.
+- `component-mounting.md`: How TinyFX discovers and mounts components (compile-time discovery, generated mount calls, runtime execution).
 - `signals.md`: `signal()` and `effect()` patterns used by runtime and generated glue.
 - `dom-helpers.md`: `bindText`, `bindAttr`, and `bindClass` helpers.
 - `http-client.md`: `createHttp()` usage and discriminated error types.

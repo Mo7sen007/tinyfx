@@ -1,0 +1,20 @@
+{
+  "name": "fix",
+  "private": true,
+  "scripts": {
+    "dev": "tinyfx serve",
+    "build": "tinyfx build"
+  },
+  "dependencies": {
+    "@tinyfx/runtime": "latest"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@types/node": "^25.5.2",
+    "esbuild": "latest",
+    "playwright": "^1.59.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}

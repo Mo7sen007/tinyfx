@@ -320,13 +320,22 @@ fn run_esbuild(entry: &Path, generated_glue_path: &Path, out_js: &Path, release:
         .arg(format!("--outfile={}", out_file.display()))
         .arg("--platform=browser")
         .arg("--format=esm")
+        .arg("--target=es2020")
+        .arg("--charset=utf8")
         .arg("--alias:@models=./src/lib/models")
         .arg("--alias:@dto=./src/lib/dto")
         .arg("--alias:@state=./src/lib/state")
-        .arg("--alias:@services=./src/lib/services");
+        .arg("--alias:@services=./src/lib/services")
+        .arg("--alias:@utils=./src/lib/utils");
 
     if release {
         command.arg("--minify");
+        command.arg("--minify-whitespace");
+        command.arg("--minify-syntax");
+        command.arg("--minify-identifiers");
+        command.arg("--tree-shaking=ignore-annotations");
+        command.arg("--legal-comments=none");
+        command.arg("--drop:debugger");
         command.arg("--define:__DEV__=false");
     } else {
         command.arg("--sourcemap");

@@ -5,7 +5,7 @@ export { bindText, bindAttr, bindClass } from "./dom";
 export { createHttp } from "./http";
 
 // New decoupled APIs
-export { registerComponent, getComponentFactory, mountComponents } from "./registry";
+export { registerComponent, getComponentFactory, mountComponentByName, mountComponentsIn, mountComponents } from "./registry";
 export { registerPage, getPageModule, runPageInit } from "./page-registry";
 export { markMounted, isMounted } from "./mount-state";
 export { matchPath, splitPath } from "./router/path-matcher";

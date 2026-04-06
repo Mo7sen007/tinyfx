@@ -1,0 +1,34 @@
+<section class="chat" data-component="Chat" tinyfx-dynamic>
+  <div class="container">
+    <header>
+      <div id="health-status" class="status-dot"></div>
+      <h1>Global Chat!</h1>
+    </header>
+
+    <div id="chat-container">
+        <each of="messages()" as="message" key="id">
+            <ChatMessage
+            username="{{message.username}}"
+            content="{{message.content}}"
+            own="{{message.own}}"
+            />
+        </each>
+    </div>
+
+    <div id="message-form">
+      <input type="text" id="username" placeholder="Name">
+      <div class="input-wrapper">
+        <input type="text" id="content" placeholder="Type a message...">
+        <button id="send-btn">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none"
+            stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</section>

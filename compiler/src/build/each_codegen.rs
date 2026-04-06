@@ -270,7 +270,7 @@ fn generate_reconcile_fn(site: &EachSite, context: &DirectiveContext, buf: &mut 
     buf.line("if (!container.contains(record.el)) {");
     buf.indent();
     buf.line("container.insertBefore(record.el, currentAtIndex ?? null);");
-    emit_dynamic_component_mount("record.el", buf);
+    emit_dynamic_component_mount("record.el", &site.dynamic_component_names, buf);
     buf.dedent();
     buf.line("} else if (currentAtIndex !== record.el) {");
     buf.indent();
@@ -317,7 +317,7 @@ fn generate_static_mount_fn(site: &EachSite, buf: &mut TsBuffer) {
     ));
     buf.line("if (!el) continue;");
     buf.line("container.appendChild(el);");
-    emit_dynamic_component_mount("el", buf);
+    emit_dynamic_component_mount("el", &site.dynamic_component_names, buf);
     buf.dedent();
     buf.line("}");
     buf.dedent();
@@ -402,16 +402,22 @@ fn emit_binding_writes(site: &EachSite, item_var: &str, prefix: Option<&str>, bu
     }
 }
 
-fn emit_dynamic_component_mount(root_expr: &str, buf: &mut TsBuffer) {
-    buf.line(&format!(
-        "{}.querySelectorAll<HTMLElement>(\"[data-component]:not([data-tinyfx-mounted])\").forEach((node) => {{",
-        root_expr
-    ));
-    buf.indent();
-    buf.line("const name = node.getAttribute(\"data-component\");");
-    buf.line("if (name && registry[name]) registry[name](node, ctx);");
-    buf.dedent();
-    buf.line("});");
+fn emit_dynamic_component_mount(root_expr: &str, component_names: &[String], buf: &mut TsBuffer) {
+    if component_names.is_empty() {
+        return;
+    }
+
+    for name in component_names {
+        let mount_fn = format!("__mount_{}", name);
+        buf.line(&format!(
+            "{}.querySelectorAll<HTMLElement>(\"[data-component='{}']\").forEach((node) => {{",
+            root_expr, name
+        ));
+        buf.indent();
+        buf.line(&format!("{}(node, ctx);", mount_fn));
+        buf.dedent();
+        buf.line("});");
+    }
 }
 
 fn is_signal_source(site: &EachSite) -> bool {

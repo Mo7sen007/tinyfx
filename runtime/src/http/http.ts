@@ -38,6 +38,7 @@ export function createHttp(config: HttpConfig = {}) {
   ): Promise<T> {
     const fullUrl = buildUrl(url,base, options.params);
     const timeoutMs = options.timeout ?? defaultTimeout;
+    const useJson = options.json ?? true;
     
     let attempts = 0;
     const maxAttempts = maxRetries + 1;
@@ -51,14 +52,18 @@ export function createHttp(config: HttpConfig = {}) {
           ...options.headers,
         };
         
-        if (body !== undefined && !headers["Content-Type"]) {
+        if (body !== undefined && useJson && !headers["Content-Type"]) {
           headers["Content-Type"] = "application/json";
         }
+
+        const serializedBody = body !== undefined 
+          ? (useJson ? JSON.stringify(body) : body as BodyInit)
+          : undefined;
 
         let fetchOptions: RequestInit = {
           method,
           headers,
-          body: body !== undefined ? JSON.stringify(body) : undefined,
+          body: serializedBody,
           signal: options.signal,
         };
 

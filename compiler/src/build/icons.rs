@@ -31,7 +31,7 @@ pub fn inline_fontawesome_icons(html: &str) -> String {
             }
 
             format!(
-                "<svg viewBox=\"0 0 512 512\" fill=\"currentColor\" aria-hidden=\"true\" focusable=\"false\" class=\"tinyfx-fa tinyfx-fa-{}\"{}>{}</svg>",
+                "<svg width=\"1em\" height=\"1em\" viewBox=\"0 0 512 512\" fill=\"currentColor\" aria-hidden=\"true\" focusable=\"false\" class=\"tinyfx-fa tinyfx-fa-{}\"{}>{}</svg>",
                 class_token.replace(' ', "-"),
                 data_attrs,
                 svg

@@ -112,4 +112,5 @@ export interface RequestOptions {
   timeout?: number;
   signal?: AbortSignal;
   params?: Record<string, string | number | boolean>;
+  json?: boolean;
 }

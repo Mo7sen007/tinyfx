@@ -43,6 +43,26 @@ export function createUserService() {
 - abort signal via `options.signal`
 - request interceptors
 - response interceptors
+- body serialization control via `options.json` (default `true`)
+
+### Body Serialization
+
+By default the client serializes bodies as JSON. Set `json: false` to pass raw `BodyInit` such as `FormData`, `Blob`, or plain strings:
+
+```ts
+// File upload with FormData
+const formData = new FormData();
+formData.append("file", file);
+await http.post("/upload", formData, { json: false });
+
+// Plain text body
+await http.post("/webhook", "raw payload", {
+  json: false,
+  headers: { "Content-Type": "text/plain" },
+});
+```
+
+When `json: false` the client does **not** call `JSON.stringify` and does **not** auto-set the `Content-Type` header. You are responsible for providing a valid `BodyInit` and setting the correct header if needed.
 
 ## Error Handling
 The HTTP client uses a discriminated union type for errors. Check the `kind` field to determine the error type:

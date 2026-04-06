@@ -45,10 +45,12 @@ pub fn generate_registry(
     let has_dynamic_components = component_registry.values().any(|c| c.is_dynamic);
     let has_instance_tracking = has_each || has_dynamic_components;
     let uses_reactivity = uses_reactivity(page_directives, component_directives);
+    let dynamic_component_names =
+        collect_all_dynamic_component_names(component_registry, page_directives);
 
     let mut buf = TsBuffer::new();
     emit_header(&mut buf);
-    emit_runtime_imports(&mut buf, uses_reactivity);
+    emit_runtime_imports(&mut buf, uses_reactivity, has_dynamic_components);
     emit_types(&mut buf);
     if has_instance_tracking {
         emit_each_runtime_helpers(&mut buf);
@@ -62,7 +64,7 @@ pub fn generate_registry(
     emit_page_modules(&page_entries, &mut buf);
     emit_page_directive_helpers(page_directives, &page_module_aliases, release, &mut buf);
     emit_setup_directives(page_directives, &page_module_aliases, release, &mut buf);
-    emit_bootstrap(&mut buf, uses_reactivity);
+    emit_bootstrap(&mut buf, uses_reactivity, &dynamic_component_names);
 
     buf.build()
 }
@@ -73,7 +75,7 @@ fn emit_header(buf: &mut TsBuffer) {
     buf.blank();
 }
 
-fn emit_runtime_imports(buf: &mut TsBuffer, uses_reactivity: bool) {
+fn emit_runtime_imports(buf: &mut TsBuffer, uses_reactivity: bool, has_dynamic_components: bool) {
     buf.line("import {");
     buf.indent();
     buf.line("init,");
@@ -83,6 +85,9 @@ fn emit_runtime_imports(buf: &mut TsBuffer, uses_reactivity: bool) {
     buf.line("navigate,");
     if uses_reactivity {
         buf.line("effect,");
+    }
+    if has_dynamic_components {
+        buf.line("mountComponentByName,");
     }
     buf.dedent();
     buf.line("} from \"@tinyfx/runtime\";");
@@ -395,16 +400,38 @@ fn emit_setup_directives(
     buf.blank();
 }
 
-fn emit_bootstrap(buf: &mut TsBuffer, _uses_reactivity: bool) {
+fn emit_bootstrap(buf: &mut TsBuffer, _uses_reactivity: bool, dynamic_component_names: &[String]) {
     buf.line("if (typeof document !== \"undefined\") {");
     buf.indent();
+    buf.line("const boot = () => {");
+    buf.indent();
+    buf.line("const ctx = init({ routes, setupDirectives });");
+    buf.line("if (!ctx) return;");
+
+    if !dynamic_component_names.is_empty() {
+        buf.blank();
+        for name in dynamic_component_names {
+            buf.line(&format!(
+                "document.querySelectorAll<HTMLElement>(\"[data-component='{}']\").forEach((el) => {{",
+                name
+            ));
+            buf.indent();
+            buf.line(&format!("__mount_{}(el, ctx);", name));
+            buf.dedent();
+            buf.line("});");
+        }
+    }
+
+    buf.dedent();
+    buf.line("};");
+    buf.blank();
     buf.line("if (document.readyState === \"loading\") {");
     buf.indent();
-    buf.line("document.addEventListener(\"DOMContentLoaded\", () => init({ routes, setupDirectives }), { once: true });");
+    buf.line("document.addEventListener(\"DOMContentLoaded\", boot, { once: true });");
     buf.dedent();
     buf.line("} else {");
     buf.indent();
-    buf.line("init({ routes, setupDirectives });");
+    buf.line("boot();");
     buf.dedent();
     buf.line("}");
     buf.dedent();
@@ -434,6 +461,41 @@ fn collect_dynamic_component_imports(
     }
 
     out
+}
+
+fn collect_all_dynamic_component_names(
+    component_registry: &HashMap<String, CompiledComponent>,
+    page_directives: &[PageDirectives],
+) -> Vec<String> {
+    let mut names = Vec::new();
+
+    for component in component_registry.values() {
+        if component.is_dynamic && !names.contains(&component.name) {
+            names.push(component.name.clone());
+        }
+    }
+
+    for directive in page_directives {
+        for site in &directive.each_sites {
+            for name in &site.dynamic_component_names {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+        }
+        for site in &directive.if_sites {
+            for branch in &site.branches {
+                for name in &branch.dynamic_component_names {
+                    if !names.contains(name) {
+                        names.push(name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    names.sort();
+    names
 }
 
 fn sorted_pages(pages: &[PageDef]) -> Vec<PageDef> {
