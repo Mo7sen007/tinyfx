@@ -12,12 +12,14 @@
 //! - It does not compile component HTML
 //! - It does not orchestrate build phases
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::codegen::{DirectiveContext, TsBuffer};
 use super::component::CompiledComponent;
+use super::conditional::IfSite;
 use super::conditional_codegen::{generate_if_helpers, generate_if_wiring};
+use super::each::EachSite;
 use super::each_codegen::{generate_each_helpers, generate_each_wiring};
 use super::pages::{ComponentDirectives, PageDef, PageDirectives};
 use super::wrapper::{self, ComponentWrapperSpec};
@@ -37,16 +39,28 @@ pub fn generate_registry(
     release: bool,
 ) -> String {
     let src_dir = infer_src_dir(component_registry, pages);
-    let component_imports = collect_dynamic_component_imports(component_registry, &src_dir);
+
+    // Collect and sort dynamic components once — reused by imports, registry, and bootstrap.
+    let dynamic_components: Vec<&CompiledComponent> = {
+        let mut v: Vec<_> = component_registry.values().filter(|c| c.is_dynamic).collect();
+        v.sort_by(|a, b| a.name.cmp(&b.name));
+        v
+    };
+    let has_dynamic_components = !dynamic_components.is_empty();
+
+    let component_imports = collect_dynamic_component_imports(&dynamic_components, &src_dir);
     let sorted_pages = sorted_pages(pages);
     let (page_imports, page_entries, page_module_aliases) =
         collect_page_modules(&src_dir, &sorted_pages);
     let has_each = has_each_sites(page_directives, component_directives);
-    let has_dynamic_components = component_registry.values().any(|c| c.is_dynamic);
     let has_instance_tracking = has_each || has_dynamic_components;
     let uses_reactivity = uses_reactivity(page_directives, component_directives);
     let dynamic_component_names =
-        collect_all_dynamic_component_names(component_registry, page_directives);
+        collect_all_dynamic_component_names(&dynamic_components, page_directives);
+
+    // Collect and sort page directive sites once — reused by both helper and wiring emitters.
+    let (page_each_sites, page_if_sites) =
+        collect_sorted_page_sites(page_directives, &page_module_aliases);
 
     let mut buf = TsBuffer::new();
     emit_header(&mut buf);
@@ -58,12 +72,12 @@ pub fn generate_registry(
     emit_mount_component_helper(has_instance_tracking, &mut buf);
     emit_component_imports(&component_imports, &mut buf);
     emit_component_directive_helpers(component_directives, release, &mut buf);
-    emit_registry(component_registry, component_directives, &mut buf);
+    emit_registry(&dynamic_components, component_directives, &mut buf);
     emit_page_imports(&page_imports, &mut buf);
     emit_routes(&sorted_pages, &mut buf);
     emit_page_modules(&page_entries, &mut buf);
-    emit_page_directive_helpers(page_directives, &page_module_aliases, release, &mut buf);
-    emit_setup_directives(page_directives, &page_module_aliases, release, &mut buf);
+    emit_page_directive_helpers(&page_each_sites, &page_if_sites, release, &mut buf);
+    emit_setup_directives(&page_each_sites, &page_if_sites, release, &mut buf);
     emit_bootstrap(&mut buf, uses_reactivity, &dynamic_component_names);
 
     buf.build()
@@ -208,7 +222,7 @@ fn emit_component_directive_helpers(
 }
 
 fn emit_registry(
-    component_registry: &HashMap<String, CompiledComponent>,
+    dynamic_components: &[&CompiledComponent],
     component_directives: &[ComponentDirectives],
     buf: &mut TsBuffer,
 ) {
@@ -217,13 +231,7 @@ fn emit_registry(
         .map(|directive| (directive.component_name.as_str(), directive))
         .collect();
 
-    let mut components: Vec<&CompiledComponent> = component_registry
-        .values()
-        .filter(|component| component.is_dynamic)
-        .collect();
-    components.sort_by(|left, right| left.name.cmp(&right.name));
-
-    for component in &components {
+    for component in dynamic_components {
         let spec = ComponentWrapperSpec {
             name: component.name.clone(),
             each_sites: directives_map
@@ -238,13 +246,13 @@ fn emit_registry(
         wrapper::generate_component_wrapper(&spec, buf);
     }
 
-    for component in &components {
+    for component in dynamic_components {
         buf.line(&format!(
             "registerComponent(\"{}\", (el, ctx) => __mount_{}(el, ctx));",
             component.name, component.name
         ));
     }
-    if !components.is_empty() {
+    if !dynamic_components.is_empty() {
         buf.blank();
     }
 }
@@ -302,35 +310,16 @@ fn emit_page_modules(entries: &[(String, String)], buf: &mut TsBuffer) {
 }
 
 fn emit_page_directive_helpers(
-    directives: &[PageDirectives],
-    page_module_aliases: &HashMap<String, String>,
+    each_sites: &[(&EachSite, String)],
+    if_sites: &[(&IfSite, String)],
     release: bool,
     buf: &mut TsBuffer,
 ) {
-    let mut each_sites = Vec::new();
-    let mut if_sites = Vec::new();
-
-    for page in directives {
-        let alias = page_module_aliases
-            .get(&page.page_name)
-            .cloned()
-            .unwrap_or_default();
-        for site in &page.each_sites {
-            each_sites.push((site, alias.clone()));
-        }
-        for site in &page.if_sites {
-            if_sites.push((site, alias.clone()));
-        }
-    }
-
-    each_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
-    if_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
-
     for (site, alias) in each_sites {
         generate_each_helpers(
             site,
             &DirectiveContext::Page {
-                module_alias: alias,
+                module_alias: alias.clone(),
                 release,
             },
             buf,
@@ -340,7 +329,7 @@ fn emit_page_directive_helpers(
         generate_if_helpers(
             site,
             &DirectiveContext::Page {
-                module_alias: alias,
+                module_alias: alias.clone(),
                 release,
             },
             buf,
@@ -349,37 +338,18 @@ fn emit_page_directive_helpers(
 }
 
 fn emit_setup_directives(
-    directives: &[PageDirectives],
-    page_module_aliases: &HashMap<String, String>,
+    each_sites: &[(&EachSite, String)],
+    if_sites: &[(&IfSite, String)],
     release: bool,
     buf: &mut TsBuffer,
 ) {
-    let mut each_sites = Vec::new();
-    let mut if_sites = Vec::new();
-
-    for page in directives {
-        let alias = page_module_aliases
-            .get(&page.page_name)
-            .cloned()
-            .unwrap_or_default();
-        for site in &page.each_sites {
-            each_sites.push((site, alias.clone()));
-        }
-        for site in &page.if_sites {
-            if_sites.push((site, alias.clone()));
-        }
-    }
-
-    each_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
-    if_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
-
     buf.line("function setupDirectives(ctx: TinyFxContext): void {");
     buf.indent();
     for (site, alias) in each_sites {
         generate_each_wiring(
             site,
             &DirectiveContext::Page {
-                module_alias: alias,
+                module_alias: alias.clone(),
                 release,
             },
             buf,
@@ -389,7 +359,7 @@ fn emit_setup_directives(
         generate_if_wiring(
             site,
             &DirectiveContext::Page {
-                module_alias: alias,
+                module_alias: alias.clone(),
                 release,
             },
             buf,
@@ -440,17 +410,11 @@ fn emit_bootstrap(buf: &mut TsBuffer, _uses_reactivity: bool, dynamic_component_
 }
 
 fn collect_dynamic_component_imports(
-    component_registry: &HashMap<String, CompiledComponent>,
+    dynamic_components: &[&CompiledComponent],
     src_dir: &Path,
 ) -> Vec<DynamicComponentImport> {
-    let mut components: Vec<&CompiledComponent> = component_registry
-        .values()
-        .filter(|component| component.is_dynamic)
-        .collect();
-    components.sort_by(|left, right| left.name.cmp(&right.name));
-
     let mut out = Vec::new();
-    for component in components {
+    for component in dynamic_components {
         let script_path = component.path.with_extension("ts");
         if script_path.exists() {
             out.push(DynamicComponentImport {
@@ -459,41 +423,52 @@ fn collect_dynamic_component_imports(
             });
         }
     }
-
     out
 }
 
-fn collect_all_dynamic_component_names(
-    component_registry: &HashMap<String, CompiledComponent>,
-    page_directives: &[PageDirectives],
-) -> Vec<String> {
-    let mut names = Vec::new();
-
-    for component in component_registry.values() {
-        if component.is_dynamic && !names.contains(&component.name) {
-            names.push(component.name.clone());
+fn collect_sorted_page_sites<'a>(
+    directives: &'a [PageDirectives],
+    aliases: &HashMap<String, String>,
+) -> (Vec<(&'a EachSite, String)>, Vec<(&'a IfSite, String)>) {
+    let mut each_sites = Vec::new();
+    let mut if_sites = Vec::new();
+    for page in directives {
+        let alias = aliases.get(&page.page_name).cloned().unwrap_or_default();
+        for site in &page.each_sites {
+            each_sites.push((site, alias.clone()));
+        }
+        for site in &page.if_sites {
+            if_sites.push((site, alias.clone()));
         }
     }
+    each_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
+    if_sites.sort_by(|(left, _), (right, _)| left.id.cmp(&right.id));
+    (each_sites, if_sites)
+}
+
+fn collect_all_dynamic_component_names(
+    dynamic_components: &[&CompiledComponent],
+    page_directives: &[PageDirectives],
+) -> Vec<String> {
+    let mut seen: HashSet<String> =
+        dynamic_components.iter().map(|c| c.name.clone()).collect();
 
     for directive in page_directives {
         for site in &directive.each_sites {
             for name in &site.dynamic_component_names {
-                if !names.contains(name) {
-                    names.push(name.clone());
-                }
+                seen.insert(name.clone());
             }
         }
         for site in &directive.if_sites {
             for branch in &site.branches {
                 for name in &branch.dynamic_component_names {
-                    if !names.contains(name) {
-                        names.push(name.clone());
-                    }
+                    seen.insert(name.clone());
                 }
             }
         }
     }
 
+    let mut names: Vec<String> = seen.into_iter().collect();
     names.sort();
     names
 }
@@ -657,7 +632,7 @@ mod tests {
                 key_strategy: super::super::each::KeyStrategy::Index,
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
@@ -703,7 +678,7 @@ mod tests {
                 key_strategy: super::super::each::KeyStrategy::Index,
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
@@ -752,7 +727,7 @@ mod tests {
                 key_strategy: super::super::each::KeyStrategy::Index,
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),

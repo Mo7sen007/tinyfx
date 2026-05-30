@@ -80,6 +80,16 @@ pub async fn run(dir: Arc<PathBuf>) -> Result<()> {
     }
 }
 
+fn not_found() -> Response<ResponseBody> {
+    let mut response = Response::new(Full::new(Bytes::from_static(b"404 Not Found")));
+    *response.status_mut() = StatusCode::NOT_FOUND;
+    response.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        hyper::header::HeaderValue::from_static("text/plain"),
+    );
+    response
+}
+
 async fn serve_file(
     req: Request<Incoming>,
     dir: Arc<PathBuf>,
@@ -88,13 +98,7 @@ async fn serve_file(
 
     // Basic path sanitation: reject attempts at directory traversal.
     if req_path_raw.contains("..") {
-        let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
-        *response.status_mut() = StatusCode::NOT_FOUND;
-        response.headers_mut().insert(
-            hyper::header::CONTENT_TYPE,
-            hyper::header::HeaderValue::from_static("text/plain"),
-        );
-        return Ok(response);
+        return Ok(not_found());
     }
 
     let rel = req_path_raw.trim_start_matches('/');
@@ -143,8 +147,10 @@ async fn serve_file(
                 let compressible = is_compressible_mime(&mime);
                 let accepts_gzip = header_contains(&req, "accept-encoding", "gzip");
                 let (body, content_encoding) = if compressible && accepts_gzip {
-                    let compressed = gzip_compress(&body);
-                    (Bytes::from(compressed), Some("gzip"))
+                    match gzip_compress(&body) {
+                        Ok(compressed) => (Bytes::from(compressed), Some("gzip")),
+                        Err(_) => (body, None),
+                    }
                 } else {
                     (body, None)
                 };
@@ -165,24 +171,10 @@ async fn serve_file(
                 }
                 Ok(response)
             }
-            Err(_) => {
-                let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
-                *response.status_mut() = StatusCode::NOT_FOUND;
-                response.headers_mut().insert(
-                    hyper::header::CONTENT_TYPE,
-                    hyper::header::HeaderValue::from_static("text/plain"),
-                );
-                Ok(response)
-            }
+            Err(_) => Ok(not_found()),
         }
     } else {
-        let mut response = Response::new(Full::new(Bytes::from("404 Not Found")));
-        *response.status_mut() = StatusCode::NOT_FOUND;
-        response.headers_mut().insert(
-            hyper::header::CONTENT_TYPE,
-            hyper::header::HeaderValue::from_static("text/plain"),
-        );
-        Ok(response)
+        Ok(not_found())
     }
 }
 
@@ -214,8 +206,8 @@ fn header_contains<K: AsRef<str>>(req: &Request<Incoming>, key: K, value: &str) 
 }
 
 /// Compress bytes with gzip at default compression level.
-fn gzip_compress(data: &[u8]) -> Vec<u8> {
+fn gzip_compress(data: &[u8]) -> std::io::Result<Vec<u8>> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(data).expect("gzip write failed");
-    encoder.finish().expect("gzip finish failed")
+    encoder.write_all(data)?;
+    encoder.finish()
 }

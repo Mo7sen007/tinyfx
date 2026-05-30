@@ -6,13 +6,14 @@
 //! - Parse lightweight HTML-style attribute strings
 //! - Derive route paths from page source paths
 //! - Apply final placeholder interpolation pass
+//! - Collect dynamic component names referenced in HTML
 //!
 //! ## What this module does NOT do
 //! - It does not read files from disk
 //! - It does not expand components
 //! - It does not write compiled pages
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::OnceLock;
 
@@ -63,71 +64,52 @@ pub fn parse_attrs(attrs: &str) -> HashMap<String, String> {
 /// Parse attributes while preserving source order.
 pub fn parse_attrs_ordered(attrs: &str) -> Vec<(String, String)> {
     let mut parsed = Vec::new();
-    let chars: Vec<char> = attrs.chars().collect();
-    let mut index = 0;
+    let mut rest = attrs.trim();
 
-    while index < chars.len() {
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-        if index >= chars.len() {
+    loop {
+        rest = rest.trim_start();
+        if rest.is_empty() || rest.starts_with('>') {
             break;
         }
 
-        let key_start = index;
-        while index < chars.len()
-            && !chars[index].is_whitespace()
-            && chars[index] != '='
-            && chars[index] != '>'
-        {
-            index += 1;
-        }
-
-        let key: String = chars[key_start..index].iter().collect();
+        // Read attribute name: ends at whitespace, '=', or '>'
+        let key_end = rest
+            .find(|c: char| c.is_whitespace() || c == '=' || c == '>')
+            .unwrap_or(rest.len());
+        let key = &rest[..key_end];
         if key.is_empty() {
             break;
         }
+        rest = rest[key_end..].trim_start();
 
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() || chars[index] != '=' {
-            parsed.push((key, "true".to_string()));
+        // Boolean attribute — no value
+        if !rest.starts_with('=') {
+            parsed.push((key.to_string(), "true".to_string()));
             continue;
         }
-        index += 1;
+        rest = rest[1..].trim_start(); // consume '='
 
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-
-        if index >= chars.len() {
-            parsed.push((key, String::new()));
+        if rest.is_empty() {
+            parsed.push((key.to_string(), String::new()));
             break;
         }
 
-        let value = if chars[index] == '"' || chars[index] == '\'' {
-            let quote = chars[index];
-            index += 1;
-            let value_start = index;
-            while index < chars.len() && chars[index] != quote {
-                index += 1;
-            }
-            let value: String = chars[value_start..index].iter().collect();
-            if index < chars.len() {
-                index += 1;
-            }
-            value
+        let value = if let Some(quote) = rest.chars().next().filter(|&c| c == '"' || c == '\'') {
+            rest = &rest[quote.len_utf8()..]; // consume opening quote
+            let end = rest.find(quote).unwrap_or(rest.len());
+            let val = rest[..end].to_string();
+            rest = if end < rest.len() { &rest[end + quote.len_utf8()..] } else { "" };
+            val
         } else {
-            let value_start = index;
-            while index < chars.len() && !chars[index].is_whitespace() && chars[index] != '>' {
-                index += 1;
-            }
-            chars[value_start..index].iter().collect()
+            let end = rest
+                .find(|c: char| c.is_whitespace() || c == '>')
+                .unwrap_or(rest.len());
+            let val = rest[..end].to_string();
+            rest = &rest[end..];
+            val
         };
 
-        parsed.push((key, value));
+        parsed.push((key.to_string(), value));
     }
 
     parsed
@@ -158,17 +140,35 @@ pub fn derive_route(path: &Path, pages_root: &Path) -> String {
 
 /// Final placeholder interpolation pass for unresolved moustache tokens.
 pub fn interpolate_placeholders(html: &str) -> String {
-    moustache_re().replace_all(html, "").to_string()
+    moustache_strip_re().replace_all(html, "").to_string()
 }
 
-/// Asset path rewrite hook.
-pub fn rewrite_asset_paths(html: &str) -> String {
-    html.to_string()
+/// Collect the names of all dynamic components (`data-component="..."`) in `html`.
+///
+/// Preserves insertion order and deduplicates.
+pub fn collect_dynamic_names(html: &str) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for cap in data_component_re().captures_iter(html) {
+        let name = cap.get(1).map(|m| m.as_str()).unwrap_or_default();
+        if !name.is_empty() && seen.insert(name.to_string()) {
+            out.push(name.to_string());
+        }
+    }
+    out
 }
 
-fn moustache_re() -> &'static Regex {
+fn moustache_strip_re() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();
     REGEX.get_or_init(|| Regex::new(r#"\{\{\s*[^}]+\s*\}\}"#).unwrap())
+}
+
+fn data_component_re() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| {
+        Regex::new(r#"data-component\s*=\s*["']([A-Za-z0-9_:-]+)["']"#)
+            .expect("valid data-component regex")
+    })
 }
 
 fn escape_attr_value(value: &str) -> String {

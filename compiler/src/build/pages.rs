@@ -14,7 +14,7 @@
 //! - It does not build the dependency graph
 //! - It does not generate runtime glue code
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -26,8 +26,7 @@ use super::component::{expand_component_tags, CompiledComponent};
 use super::conditional::{parse_if_blocks, IfSite};
 use super::dependency_graph::collect_component_references;
 use super::each::{parse_each_blocks, EachSite};
-use super::icons;
-use super::pages_util::{derive_route, interpolate_placeholders, parse_attrs, rewrite_asset_paths};
+use super::pages_util::{derive_route, interpolate_placeholders, parse_attrs};
 
 #[derive(Debug, Clone)]
 pub struct PageDef {
@@ -55,23 +54,21 @@ pub struct ComponentDirectives {
 /// Collect pre-parsed directive sites for dynamic components.
 pub fn collect_component_directives(
     component_registry: &HashMap<String, CompiledComponent>,
-) -> Result<Vec<ComponentDirectives>> {
+) -> Vec<ComponentDirectives> {
     let mut dynamic_components: Vec<&CompiledComponent> = component_registry
         .values()
         .filter(|component| component.is_dynamic)
         .collect();
     dynamic_components.sort_by(|left, right| left.name.cmp(&right.name));
 
-    let mut directives = Vec::with_capacity(dynamic_components.len());
-    for component in dynamic_components {
-        directives.push(ComponentDirectives {
+    dynamic_components
+        .into_iter()
+        .map(|component| ComponentDirectives {
             component_name: component.name.clone(),
             each_sites: component.each_sites.clone(),
             if_sites: component.if_sites.clone(),
-        });
-    }
-
-    Ok(directives)
+        })
+        .collect()
 }
 
 /// Compile one page and collect compile-time directives.
@@ -200,21 +197,15 @@ fn parse_and_expand_page(
             )
         })?;
     let interpolated = interpolate_placeholders(&with_conditionals);
-    let rewritten = rewrite_asset_paths(&interpolated);
-    let (semantic_body, semantic_warnings) = ensure_semantic_html(&rewritten, &page_name);
+    let (semantic_body, semantic_warnings) = ensure_semantic_html(&interpolated, &page_name);
     for warning in semantic_warnings {
         eprintln!("warning: {}", warning);
     }
-    let icon_warnings = icons::warn_fontawesome_cdn_usage(&semantic_body);
-    for warning in icon_warnings {
-        eprintln!("warning: {}", warning);
-    }
-    let inlined_icons = icons::inline_fontawesome_icons(&semantic_body);
     let template_sites =
-        collect_template_sites_for_page(&inlined_icons, &each_sites, component_registry);
+        collect_template_sites_for_page(&semantic_body, &each_sites, component_registry);
     let html_with_templates = inject_each_templates(
         &build_html_shell(
-            &inlined_icons,
+            &semantic_body,
             &page_name,
             &user_head,
             page_title.as_deref(),
@@ -275,9 +266,7 @@ fn extract_page_element(
 /// Returns `(head_content, body_without_head)`. If no `<head>` block is found,
 /// `head_content` is empty and the body is returned unchanged.
 fn extract_head_content(html: &str) -> (String, String) {
-    static HEAD_RE: OnceLock<Regex> = OnceLock::new();
-    let re = HEAD_RE.get_or_init(|| Regex::new(r"(?s)<head[^>]*>(.*?)</head>").unwrap());
-
+    let re = head_re();
     if let Some(caps) = re.captures(html) {
         let head_content = caps
             .get(1)
@@ -315,14 +304,19 @@ fn wrap_in_layout(
     layout_name: &str,
     component_registry: &HashMap<String, CompiledComponent>,
 ) -> Result<String> {
-    let wrapped_html = format!("<{}>{}</{}>", layout_name, body, layout_name);
-    expand_component_tags(&wrapped_html, component_registry).with_context(|| {
-        format!(
-            "failed to expand layout '{}'\n  → confirm the layout component exists in src/components/{}",
+    let Some(layout) = component_registry.get(layout_name) else {
+        bail!(
+            "layout '{}' not found\n  → confirm the layout component exists in src/components/{}",
             layout_name,
             layout_name
-        )
-    })
+        );
+    };
+    let html = layout
+        .html
+        .replace("<slot></slot>", body)
+        .replace("<slot/>", body)
+        .replace("<slot />", body);
+    Ok(html)
 }
 
 fn warn_missing_components(
@@ -417,16 +411,13 @@ fn merge_head(user_head: &str, title: &str) -> String {
 
 /// If the line is a `<link rel="stylesheet" href="...">`, return the href.
 fn extract_stylesheet_href(line: &str) -> Option<String> {
-    if !line.to_ascii_lowercase().contains("rel=\"stylesheet\"")
-        && !line.to_ascii_lowercase().contains("rel='stylesheet'")
-    {
+    let lower = line.to_ascii_lowercase();
+    if !lower.contains("rel=\"stylesheet\"") && !lower.contains("rel='stylesheet'") {
         return None;
     }
 
-    static HREF_RE: OnceLock<Regex> = OnceLock::new();
-    let re = HREF_RE.get_or_init(|| Regex::new(r#"href\s*=\s*["']([^"']+)["']"#).unwrap());
-
-    re.captures(line)
+    stylesheet_href_re()
+        .captures(line)
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str().to_string())
 }
@@ -493,17 +484,17 @@ fn collect_template_sites_for_page(
         }
     }
 
+    let mut seen_ids = HashSet::new();
     let mut ordered = Vec::<(String, String)>::new();
     for cap in data_each_re().captures_iter(body_html) {
         let Some(id_match) = cap.get(1) else {
             continue;
         };
         let id = id_match.as_str().trim();
-        if ordered.iter().any(|(existing, _)| existing == id) {
-            continue;
-        }
-        if let Some(template_html) = by_id.get(id) {
-            ordered.push((id.to_string(), template_html.clone()));
+        if seen_ids.insert(id.to_string()) {
+            if let Some(template_html) = by_id.get(id) {
+                ordered.push((id.to_string(), template_html.clone()));
+            }
         }
     }
 
@@ -541,6 +532,16 @@ fn title_from_page_name(page_name: &str) -> String {
     } else {
         words.join(" ")
     }
+}
+
+fn head_re() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r"(?s)<head[^>]*>(.*?)</head>").unwrap())
+}
+
+fn stylesheet_href_re() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r#"href\s*=\s*["']([^"']+)["']"#).unwrap())
 }
 
 fn page_open_re() -> &'static Regex {
@@ -688,7 +689,7 @@ mod tests {
                     },
                     template_html: "<div data-fx=\"0\"></div>".to_string(),
                     bindings: vec![],
-                    has_dynamic_components: false,
+
                     dynamic_component_names: vec![],
                 }],
                 if_sites: vec![],

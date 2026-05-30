@@ -4,19 +4,8 @@
 //!
 //! This module emits per-site helper functions and wiring statements.
 
-use std::sync::OnceLock;
-
-use regex::Regex;
-
-use super::codegen::{qualify_expr, DirectiveContext, LoopSource, TsBuffer};
+use super::codegen::{mustache_capture_re, qualify_expr, DirectiveContext, LoopSource, TsBuffer};
 use super::each::{BindingKind, EachSite, KeyStrategy, TemplateBinding};
-
-/// Generate all TypeScript code for one `<each>` site.
-#[allow(dead_code)]
-pub fn generate_each_code(site: &EachSite, context: &DirectiveContext, buf: &mut TsBuffer) {
-    generate_each_helpers(site, context, buf);
-    generate_each_wiring(site, context, buf);
-}
 
 /// Generate helper functions for one `<each>` site.
 pub fn generate_each_helpers(site: &EachSite, context: &DirectiveContext, buf: &mut TsBuffer) {
@@ -473,7 +462,7 @@ fn attribute_value_expression(binding: &TemplateBinding, item_var: &str) -> Stri
     let token_a = format!("{}.{}", item_var, binding.field);
     let token_b = binding.field.clone();
     let mut rendered = template.clone();
-    rendered = moustache_re()
+    rendered = mustache_capture_re()
         .replace_all(&rendered, |caps: &regex::Captures| {
             let raw = caps.get(1).map(|m| m.as_str()).unwrap_or_default().trim();
             if raw == token_a || raw == token_b {
@@ -495,10 +484,6 @@ fn escape_ts_template_literal(input: &str) -> String {
         .replace("\\${String", "${String")
 }
 
-fn moustache_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r#"\{\{\s*([^}]+)\s*\}\}"#).expect("valid moustache regex"))
-}
 
 #[cfg(test)]
 mod tests {
@@ -521,7 +506,6 @@ mod tests {
                 kind: BindingKind::TextContent,
                 attr_template: None,
             }],
-            has_dynamic_components: false,
             dynamic_component_names: Vec::new(),
         }
     }
@@ -706,6 +690,7 @@ mod tests {
             kind: BindingKind::Attribute("class".to_string()),
             attr_template: Some("message {{own}}".to_string()),
         }];
+
 
         let mut buf = TsBuffer::new();
         generate_each_helpers(

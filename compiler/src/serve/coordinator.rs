@@ -65,5 +65,5 @@ async fn run_async(config: &config::Config) -> Result<()> {
 /// Returns an error when the Tokio runtime cannot be created or when startup
 /// of the build, watcher, HTTP server, or WebSocket server fails.
 pub fn run(config: &config::Config) -> Result<()> {
-    tokio::runtime::Runtime::new()?.block_on(run_async(&config))
+    tokio::runtime::Runtime::new()?.block_on(run_async(config))
 }

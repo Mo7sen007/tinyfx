@@ -14,16 +14,15 @@
 //! - It does not write output files directly
 
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
-use regex::Regex;
 
 use super::codegen::{detect_value_kind, site_id};
 use super::component::{CompiledComponent, expand_component_tags};
 use super::each::find_tag_span;
 use super::pages_util::{
-    filter_non_directive_attrs, parse_attrs as parse_attrs_payload, serialize_attrs_to_html,
+    collect_dynamic_names, filter_non_directive_attrs, parse_attrs as parse_attrs_payload,
+    serialize_attrs_to_html,
 };
 
 /// One branch in a parsed `<if>` site.
@@ -210,28 +209,6 @@ fn parse_attrs(open_tag: &str) -> Result<HashMap<String, String>> {
     Ok(parse_attrs_payload(input))
 }
 
-fn collect_dynamic_names(html: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for cap in data_component_re().captures_iter(html) {
-        let name = cap
-            .get(1)
-            .map(|m| m.as_str())
-            .unwrap_or_default()
-            .to_string();
-        if !name.is_empty() && !out.contains(&name) {
-            out.push(name);
-        }
-    }
-    out
-}
-
-fn data_component_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r#"data-component\s*=\s*["']([A-Za-z0-9_:-]+)["']"#)
-            .expect("valid data-component regex")
-    })
-}
 
 #[cfg(test)]
 mod tests {

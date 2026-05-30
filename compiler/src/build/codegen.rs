@@ -14,7 +14,10 @@
 //! - It does not perform directive-specific validation
 //! - It does not emit full page glue by itself
 
+use std::sync::OnceLock;
+
 use anyhow::{bail, Result};
+use regex::Regex;
 
 /// Classifies an expression as signal-backed (`foo()`) or plain (`foo`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -184,6 +187,12 @@ fn parse_positive_int(input: &str) -> Result<usize> {
         );
     }
     Ok(parsed)
+}
+
+/// Shared `{{...}}` capturing regex used by the `each` and `each_codegen` modules.
+pub fn mustache_capture_re() -> &'static Regex {
+    static REGEX: OnceLock<Regex> = OnceLock::new();
+    REGEX.get_or_init(|| Regex::new(r#"\{\{\s*([^}]+)\s*\}\}"#).expect("valid mustache regex"))
 }
 
 /// Buffered TypeScript emitter with indentation support.

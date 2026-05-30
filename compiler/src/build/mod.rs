@@ -21,7 +21,6 @@ mod dependency_graph;
 mod each;
 mod each_codegen;
 mod glue;
-mod icons;
 pub mod pages;
 mod pages_util;
 mod pool;
@@ -66,7 +65,7 @@ pub fn run_build(config: &Config) -> Result<()> {
     )?);
     let (resolved_pages, directives) =
         phase_2_process_pages(config, &dependency_graph, Arc::clone(&component_registry))?;
-    let component_directives = pages::collect_component_directives(component_registry.as_ref())?;
+    let component_directives = pages::collect_component_directives(component_registry.as_ref());
     let generated_glue_path = phase_3_generate_glue(
         config,
         component_registry.as_ref(),

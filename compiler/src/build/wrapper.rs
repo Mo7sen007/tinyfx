@@ -202,7 +202,7 @@ mod tests {
                 },
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
@@ -230,7 +230,7 @@ mod tests {
                 },
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),
@@ -272,7 +272,7 @@ mod tests {
                 },
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: vec![IfSite {
@@ -308,7 +308,7 @@ mod tests {
                 },
                 template_html: "<div></div>".to_string(),
                 bindings: Vec::new(),
-                has_dynamic_components: false,
+
                 dynamic_component_names: Vec::new(),
             }],
             if_sites: Vec::new(),

@@ -96,12 +96,12 @@ fn write(path: &Path, contents: &str) -> Result<()> {
 /// # Errors
 /// Returns an error when the target directory already exists, when any
 /// scaffold file cannot be written, or when `npm install` fails.
-pub fn run_init(name: &str, _force: bool) -> Result<()> {
+pub fn run_init(name: &str, force: bool) -> Result<()> {
     let base = Path::new(name);
 
-    if base.exists() {
+    if base.exists() && !force {
         bail!(
-            "error: directory \"{}\" already exists\n  → choose a different name or remove the existing directory",
+            "error: directory \"{}\" already exists\n  → choose a different name, remove the existing directory, or pass --force to overwrite",
             name
         );
     }

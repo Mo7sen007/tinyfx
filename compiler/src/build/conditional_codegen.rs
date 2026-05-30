@@ -15,13 +15,6 @@
 use super::codegen::{detect_value_kind, qualify_expr, DirectiveContext, TsBuffer, ValueKind};
 use super::conditional::IfSite;
 
-/// Generate TypeScript for one `<if>` site.
-#[allow(dead_code)]
-pub fn generate_if_code(site: &IfSite, context: &DirectiveContext, buf: &mut TsBuffer) {
-    generate_if_helpers(site, context, buf);
-    generate_if_wiring(site, context, buf);
-}
-
 /// Generate the `__toggle_*` helper for one `<if>` site.
 pub fn generate_if_helpers(site: &IfSite, context: &DirectiveContext, buf: &mut TsBuffer) {
     let else_branch_index = site
@@ -176,41 +169,8 @@ pub fn generate_if_wiring(site: &IfSite, context: &DirectiveContext, buf: &mut T
 fn qualify_if_expr(expr: &str, context: &DirectiveContext) -> String {
     match context {
         DirectiveContext::Page { module_alias, .. } => qualify_expr(expr, module_alias),
-        DirectiveContext::Component { .. } => qualify_component_expr(expr),
+        DirectiveContext::Component { .. } => qualify_expr(expr, "inst"),
     }
-}
-
-fn qualify_component_expr(expr: &str) -> String {
-    let trimmed = expr.trim();
-    if trimmed.parse::<usize>().is_ok() {
-        return trimmed.to_string();
-    }
-
-    if trimmed.ends_with("()") {
-        let name = trimmed[..trimmed.len() - 2].trim();
-        return format!("inst.{}()", name);
-    }
-
-    if trimmed.chars().all(|c| c.is_alphanumeric() || c == '_') {
-        return format!("inst.{}", trimmed);
-    }
-
-    let mut chars = trimmed.chars().peekable();
-    let mut ident = String::new();
-    while let Some(&c) = chars.peek() {
-        if c.is_alphanumeric() || c == '_' {
-            ident.push(c);
-            chars.next();
-        } else {
-            break;
-        }
-    }
-    if ident.is_empty() {
-        return trimmed.to_string();
-    }
-
-    let rest: String = chars.collect();
-    format!("inst.{}{}", ident, rest)
 }
 
 #[cfg(test)]
@@ -237,15 +197,13 @@ mod tests {
                 },
             ],
         };
+        let ctx = DirectiveContext::Page {
+            module_alias: "PageModule0".to_string(),
+            release: false,
+        };
         let mut buf = TsBuffer::new();
-        generate_if_code(
-            &site,
-            &DirectiveContext::Page {
-                module_alias: "PageModule0".to_string(),
-                release: false,
-            },
-            &mut buf,
-        );
+        generate_if_helpers(&site, &ctx, &mut buf);
+        generate_if_wiring(&site, &ctx, &mut buf);
         assert!(buf
             .build()
             .contains("effect(() => __toggle_index_if_0(ctx))"));
@@ -262,15 +220,13 @@ mod tests {
                 dynamic_component_names: Vec::new(),
             }],
         };
+        let ctx = DirectiveContext::Page {
+            module_alias: "PageModule0".to_string(),
+            release: false,
+        };
         let mut buf = TsBuffer::new();
-        generate_if_code(
-            &site,
-            &DirectiveContext::Page {
-                module_alias: "PageModule0".to_string(),
-                release: false,
-            },
-            &mut buf,
-        );
+        generate_if_helpers(&site, &ctx, &mut buf);
+        generate_if_wiring(&site, &ctx, &mut buf);
         assert!(buf.build().contains("if (!wrapper) return;"));
     }
 }

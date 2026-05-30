@@ -13,9 +13,9 @@
 //! - It does not generate glue code
 //! - It does not orchestrate build phases
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
@@ -395,10 +395,10 @@ fn has_directive_markup(raw_html: &str) -> bool {
 
 fn validate_component_directive_visibility(
     component_name: &str,
-    script_path: &PathBuf,
+    script_path: &Path,
     each_sites: &[EachSite],
     if_sites: &[IfSite],
-    template_path: &PathBuf,
+    template_path: &Path,
 ) -> Result<()> {
     let script_source = fs::read_to_string(script_path).with_context(|| {
         format!(
@@ -422,14 +422,21 @@ fn validate_component_directive_visibility(
 }
 
 fn collect_referenced_properties(each_sites: &[EachSite], if_sites: &[IfSite]) -> Vec<String> {
-    let mut properties = Vec::new();
+    let mut properties: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    let mut add = |name: String| {
+        if !name.is_empty() && seen.insert(name.clone()) {
+            properties.push(name);
+        }
+    };
 
     for site in each_sites {
         match &site.source {
-            LoopSource::Signal(name) => push_unique(&mut properties, name),
+            LoopSource::Signal(name) => add(name.clone()),
             LoopSource::Plain(expr) => {
                 if let Some(name) = first_identifier(expr) {
-                    push_unique(&mut properties, &name);
+                    add(name);
                 }
             }
             LoopSource::Range(_, _) => {}
@@ -444,7 +451,7 @@ fn collect_referenced_properties(each_sites: &[EachSite], if_sites: &[IfSite]) -
                     super::codegen::ValueKind::Plain(expr) => first_identifier(&expr),
                 };
                 if let Some(name) = property {
-                    push_unique(&mut properties, &name);
+                    add(name);
                 }
             }
         }
@@ -457,7 +464,7 @@ fn ensure_property_is_public(
     component_name: &str,
     property: &str,
     script_source: &str,
-    template_path: &PathBuf,
+    template_path: &Path,
     each_sites: &[EachSite],
     if_sites: &[IfSite],
 ) -> Result<()> {
@@ -536,11 +543,6 @@ fn member_visibility_re() -> &'static Regex {
     })
 }
 
-fn push_unique(values: &mut Vec<String>, value: &str) {
-    if !value.is_empty() && !values.iter().any(|existing| existing == value) {
-        values.push(value.to_string());
-    }
-}
 
 fn first_identifier(expr: &str) -> Option<String> {
     let trimmed = expr.trim();

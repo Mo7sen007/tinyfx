@@ -9,17 +9,15 @@
 //! This module does not implement runtime reconciliation, write output files,
 //! or orchestrate build phases.
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{Context, Result, bail};
-use regex::Regex;
 
-use super::codegen::{LoopSource, parse_loop_source, site_id};
+use super::codegen::{mustache_capture_re, LoopSource, parse_loop_source, site_id};
 use super::component::{CompiledComponent, expand_component_tags};
 use super::dependency_graph::collect_component_references;
 use super::pages_util::{
-    filter_non_directive_attrs, parse_attrs as parse_attrs_payload,
+    collect_dynamic_names, filter_non_directive_attrs, parse_attrs as parse_attrs_payload,
     parse_attrs_ordered as parse_attrs_ordered_payload, serialize_attrs_to_html,
 };
 
@@ -70,9 +68,6 @@ pub struct EachSite {
     pub key_strategy: KeyStrategy,
     pub template_html: String,
     pub bindings: Vec<TemplateBinding>,
-    #[allow(dead_code)]
-    pub has_dynamic_components: bool,
-    #[allow(dead_code)]
     pub dynamic_component_names: Vec<String>,
 }
 
@@ -195,7 +190,6 @@ pub fn parse_each_blocks(
             source,
             item_var,
             key_strategy,
-            has_dynamic_components: !dynamic_component_names.is_empty(),
             dynamic_component_names,
             template_html,
             bindings,
@@ -218,17 +212,37 @@ pub(crate) struct TagSpan {
     pub(crate) open_tag: String,
 }
 
+/// Find the byte offset of a `<tag_name` open tag, requiring a proper word
+/// boundary after the name so that `"if"` never matches `"iframe"`.
+fn find_tag_open(html: &str, tag_name: &str, from: usize) -> Option<usize> {
+    let pat = format!("<{}", tag_name);
+    let mut search = from;
+    loop {
+        let rel = html[search..].find(&pat)?;
+        let pos = search + rel;
+        let after = pos + pat.len();
+        match html.as_bytes().get(after) {
+            // Valid boundary: whitespace, '>', or '/' (self-closing or end of tag).
+            None | Some(b' ') | Some(b'\t') | Some(b'\n') | Some(b'\r') | Some(b'>') | Some(b'/') => {
+                return Some(pos);
+            }
+            _ => {
+                search = after;
+            }
+        }
+    }
+}
+
 pub(crate) fn find_tag_span(html: &str, tag_name: &str, from: usize) -> Option<TagSpan> {
     let open_pat = format!("<{}", tag_name);
     let close_pat = format!("</{}>", tag_name);
-    let open_rel = html[from..].find(&open_pat)?;
-    let open_start = from + open_rel;
+    let open_start = find_tag_open(html, tag_name, from)?;
     let open_end = open_start + html[open_start..].find('>')? + 1;
     let mut depth = 1usize;
     let mut pos = open_end;
 
     while pos < html.len() {
-        let next_open = html[pos..].find(&open_pat).map(|v| pos + v);
+        let next_open = find_tag_open(html, tag_name, pos);
         let next_close = html[pos..].find(&close_pat).map(|v| pos + v);
         let close_start = next_close?;
 
@@ -274,20 +288,6 @@ fn ensure_components_registered(
     Ok(())
 }
 
-fn collect_dynamic_names(html: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    for captures in data_component_re().captures_iter(html) {
-        let name = captures
-            .get(1)
-            .map(|m| m.as_str())
-            .unwrap_or_default()
-            .to_string();
-        if !name.is_empty() && !out.contains(&name) {
-            out.push(name);
-        }
-    }
-    out
-}
 
 #[derive(Debug, Clone)]
 struct BindingTarget {
@@ -362,7 +362,7 @@ fn count_root_elements(html: &str) -> usize {
 // Extract first-seen template bindings from expanded loop HTML.
 fn extract_template_bindings(template_html: &str, item_var: &str) -> BindingExtraction {
     let mut targets = Vec::new();
-    let mut seen_fields = Vec::<String>::new();
+    let mut seen_fields = HashSet::<String>::new();
     let mut stack: Vec<usize> = Vec::new();
     let mut cursor = 0usize;
     let mut node_index = 0usize;
@@ -460,7 +460,7 @@ fn collect_text_bindings(
     text: &str,
     item_var: &str,
     node_index: usize,
-    seen_fields: &mut Vec<String>,
+    seen_fields: &mut HashSet<String>,
     out: &mut Vec<BindingTarget>,
 ) {
     for field in extract_binding_fields(text, item_var) {
@@ -480,14 +480,13 @@ fn collect_binding_target(
     node_index: usize,
     kind: BindingKind,
     attr_template: Option<String>,
-    seen_fields: &mut Vec<String>,
+    seen_fields: &mut HashSet<String>,
     out: &mut Vec<BindingTarget>,
 ) {
-    if seen_fields.iter().any(|existing| existing == field) {
+    if !seen_fields.insert(field.to_string()) {
         return;
     }
 
-    seen_fields.push(field.to_string());
     out.push(BindingTarget {
         field: field.to_string(),
         node_index,
@@ -614,7 +613,8 @@ fn append_data_fx_attr(raw_tag: &str, fx_index: usize) -> String {
 
 fn extract_binding_fields(input: &str, item_var: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for cap in binding_re().captures_iter(input) {
+    let mut seen = HashSet::new();
+    for cap in mustache_capture_re().captures_iter(input) {
         let raw = cap.get(1).map(|m| m.as_str()).unwrap_or_default().trim();
         if raw.is_empty() {
             continue;
@@ -632,16 +632,11 @@ fn extract_binding_fields(input: &str, item_var: &str) -> Vec<String> {
             raw.to_string()
         };
 
-        if !out.iter().any(|existing| existing == &field) {
+        if seen.insert(field.clone()) {
             out.push(field);
         }
     }
     out
-}
-
-fn binding_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| Regex::new(r#"\{\{\s*([^}]+)\s*\}\}"#).expect("valid binding regex"))
 }
 
 fn is_identifier(input: &str) -> bool {
@@ -690,13 +685,6 @@ fn line_number_at(source: &str, byte_index: usize) -> usize {
     source[..byte_index].bytes().filter(|b| *b == b'\n').count() + 1
 }
 
-fn data_component_re() -> &'static Regex {
-    static REGEX: OnceLock<Regex> = OnceLock::new();
-    REGEX.get_or_init(|| {
-        Regex::new(r#"data-component\s*=\s*["']([A-Za-z0-9_:-]+)["']"#)
-            .expect("valid data-component regex")
-    })
-}
 
 #[cfg(test)]
 mod tests {

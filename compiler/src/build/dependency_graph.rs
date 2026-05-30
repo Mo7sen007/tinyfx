@@ -92,8 +92,7 @@ pub fn create_dependency_graph(components_dir: &Path, pages_dir: &Path) -> Resul
         dependency_graph.pages.insert(page_path, page_meta);
     }
 
-    dependency_graph.populate()?;
-    dependency_graph.resolve_compilation_order()?;
+    dependency_graph.populate();
 
     Ok(dependency_graph)
 }
@@ -179,7 +178,7 @@ impl DependencyGraph {
         Ok(build_order)
     }
 
-    fn populate(&mut self) -> Result<()> {
+    fn populate(&mut self) {
         let component_name_to_path: HashMap<String, PathBuf> = self
             .components
             .iter()
@@ -208,8 +207,6 @@ impl DependencyGraph {
         for (page_path, page_html) in page_sources {
             self.register_component_refs(&page_path, &page_html, &component_name_to_path, true);
         }
-
-        Ok(())
     }
 
     fn register_component_refs(
@@ -242,17 +239,17 @@ impl DependencyGraph {
 }
 
 pub(crate) fn collect_component_references(source_html: &str) -> Vec<String> {
-    let mut refs = Vec::new();
+    let mut refs: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
 
-    for captures in pascal_component_ref_re().captures_iter(source_html) {
-        if let Some(component_name) = captures.get(1).map(|m| m.as_str().to_string()) {
-            push_unique(&mut refs, component_name);
-        }
-    }
-
-    for captures in canonical_component_ref_re().captures_iter(source_html) {
-        if let Some(component_name) = captures.get(1).map(|m| m.as_str().to_string()) {
-            push_unique(&mut refs, component_name);
+    for captures in pascal_component_ref_re()
+        .captures_iter(source_html)
+        .chain(canonical_component_ref_re().captures_iter(source_html))
+    {
+        if let Some(name) = captures.get(1).map(|m| m.as_str().to_string()) {
+            if seen.insert(name.clone()) {
+                refs.push(name);
+            }
         }
     }
 
@@ -313,11 +310,6 @@ fn parse_page_meta(path: &Path, source_html: String) -> Result<PageMeta> {
     Ok(PageMeta { name, source_html })
 }
 
-fn push_unique(items: &mut Vec<String>, value: String) {
-    if !items.contains(&value) {
-        items.push(value);
-    }
-}
 
 fn pascal_component_ref_re() -> &'static Regex {
     static REGEX: OnceLock<Regex> = OnceLock::new();

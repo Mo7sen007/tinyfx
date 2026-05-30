@@ -79,7 +79,6 @@ pub enum Gen {
         #[arg(long, default_value_t = false)]
         force: bool,
     },
-    /// Generate an interface (legacy)
     /// Generate an interface
     #[command(name = "interface", visible_alias = "i")]
     Interface {

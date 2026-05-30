@@ -90,7 +90,7 @@ impl Default for Config {
             entry_ts: default_entry_ts(),
             out_dir: default_out_dir(),
             components: default_components_dir(),
-            styles: "src/styles".to_string(),
+            styles: default_styles(),
             static_dirs: vec![],
             assets_dir: default_assets_dir(),
             pages: default_pages_dir(),
