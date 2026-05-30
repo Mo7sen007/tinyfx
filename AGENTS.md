@@ -210,6 +210,9 @@ All exports come from `@tinyfx/runtime`:
 | Export | Purpose |
 |---|---|
 | `createHttp(config)` | Create a typed HTTP client around `fetch` |
+| `isHttpError(err)` | Type guard for HTTP errors (4xx / 5xx) |
+| `isTimeoutError(err)` | Type guard for timeout errors |
+| `isParseError(err)` | Type guard for JSON parse errors |
 
 ## Reactivity System
 
@@ -608,9 +611,10 @@ const http = createHttp({
     }),
   ],
   responseInterceptors: [
+    // Receive a CLONE of the response — read-only observers only.
+    // Return value is not used; interceptors cannot transform the response.
     (response) => {
       console.log(response.status);
-      return response;
     },
   ],
 });

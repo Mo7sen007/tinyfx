@@ -1,8 +1,9 @@
 # HTTP Client
 
-TinyFX runtime provides `createHttp()`.
+TinyFX runtime provides `createHttp()` — a thin, typed wrapper over `fetch`.
 
 ## Create a Client
+
 ```ts
 // src/lib/services/user.service.ts
 import { createHttp } from "@tinyfx/runtime";
@@ -15,8 +16,8 @@ const http = createHttp({
 ```
 
 ## Typed Requests
+
 ```ts
-// src/lib/services/user.service.ts
 type UserDto = { id: number; name: string };
 
 export function createUserService() {
@@ -29,6 +30,7 @@ export function createUserService() {
 ```
 
 ## Supported Methods
+
 - `get<T>(url, options?)`
 - `post<T>(url, body?, options?)`
 - `put<T>(url, body?, options?)`
@@ -36,57 +38,121 @@ export function createUserService() {
 - `del<T>(url, options?)`
 - `delete<T>(url, options?)`
 
-## Request Features
-- query params via `options.params`
-- custom headers via `options.headers`
-- per-request timeout override via `options.timeout`
-- abort signal via `options.signal`
-- request interceptors
-- response interceptors
-- body serialization control via `options.json` (default `true`)
+## Request Options
 
-### Body Serialization
+| Option | Type | Description |
+|---|---|---|
+| `params` | `Record<string, string \| number \| boolean>` | Query parameters appended to the URL |
+| `headers` | `Record<string, string>` | Per-request headers merged with defaults |
+| `timeout` | `number` | Timeout in ms, overrides the client default |
+| `signal` | `AbortSignal` | Abort signal to cancel the request |
+| `json` | `boolean` | Serialize body as JSON (default `true`) |
 
-By default the client serializes bodies as JSON. Set `json: false` to pass raw `BodyInit` such as `FormData`, `Blob`, or plain strings:
+## Body Serialization
+
+By default the client serializes bodies as JSON and sets `Content-Type: application/json`. Set `json: false` to pass raw `BodyInit` such as `FormData`, `Blob`, or plain strings:
 
 ```ts
-// File upload with FormData
+// File upload
 const formData = new FormData();
 formData.append("file", file);
 await http.post("/upload", formData, { json: false });
 
-// Plain text body
+// Plain text
 await http.post("/webhook", "raw payload", {
   json: false,
   headers: { "Content-Type": "text/plain" },
 });
 ```
 
-When `json: false` the client does **not** call `JSON.stringify` and does **not** auto-set the `Content-Type` header. You are responsible for providing a valid `BodyInit` and setting the correct header if needed.
+## Interceptors
+
+### Request Interceptors
+
+Receive the URL and `RequestInit` and must return a `{ url, options }` object. Use them to attach auth headers or rewrite URLs.
+
+```ts
+const http = createHttp({
+  baseUrl: "/api",
+  requestInterceptors: [
+    (url, options) => ({
+      url,
+      options: {
+        ...options,
+        headers: { ...options.headers, Authorization: `Bearer ${getToken()}` },
+      },
+    }),
+  ],
+});
+```
+
+### Response Interceptors
+
+Receive a **clone** of the response for read-only inspection (logging, metrics, analytics). The return value is not used — response interceptors cannot transform the response.
+
+```ts
+const http = createHttp({
+  baseUrl: "/api",
+  responseInterceptors: [
+    (response) => {
+      console.log(`${response.status} ${response.url}`);
+    },
+  ],
+});
+```
+
+The clone allows interceptors to call `response.json()` or `response.text()` freely without consuming the body that the client needs for parsing.
+
+## Abort / Cancellation
+
+Pass an `AbortSignal` to cancel a request. If the signal is already aborted when the request is made, the client throws immediately without sending the request.
+
+```ts
+const controller = new AbortController();
+
+// Cancel after 2 seconds
+setTimeout(() => controller.abort(), 2000);
+
+try {
+  const data = await http.get("/slow-endpoint", { signal: controller.signal });
+} catch (err) {
+  if (err instanceof DOMException && err.name === "AbortError") {
+    console.log("request cancelled");
+  }
+}
+```
 
 ## Error Handling
-The HTTP client uses a discriminated union type for errors. Check the `kind` field to determine the error type:
+
+The client throws a discriminated union for all error cases. Check the `kind` field:
 
 ```ts
 import { isHttpError, isTimeoutError, isParseError } from "@tinyfx/runtime";
 
 try {
-  const user = await http.get("/users/1");
+  const user = await http.get<UserDto>("/users/1");
 } catch (err) {
   if (isHttpError(err)) {
-    // HTTP error with status, statusText, url, method, response
+    // Non-2xx response: err.status, err.statusText, err.url, err.method, err.response
     console.error(err.status, err.statusText);
   } else if (isTimeoutError(err)) {
-    // Timeout error with url and timeout
+    // Request exceeded timeout: err.url, err.timeout
     console.error("timed out after", err.timeout, "ms");
   } else if (isParseError(err)) {
-    // JSON parse error with message and url
+    // JSON parse failure: err.message, err.url
     console.error("parse error:", err.message);
   }
 }
 ```
 
-Error kinds:
-- `"http"` — non-2xx response. Fields: `status`, `statusText`, `url`, `method`, `response?`.
-- `"timeout"` — request exceeded timeout. Fields: `url`, `timeout`.
-- `"parse"` — JSON parsing failed. Fields: `message`, `url`.
+## Retry
+
+```ts
+const http = createHttp({
+  baseUrl: "/api",
+  retries: 2,       // retry up to 2 times (3 attempts total)
+  retryDelay: 500,  // initial delay in ms, multiplied by attempt number
+});
+```
+
+Only network errors and 5xx responses are retried. 4xx errors are not retried.

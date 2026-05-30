@@ -36,7 +36,7 @@ const dispose = effect(() => {
 dispose();
 ```
 
-`effect()` returns an unsubscribe function (`EffectHandle`).
+`effect()` returns an unsubscribe function (`EffectHandle`). Disposal is permanent — once called, the effect will never run again regardless of any pending signal updates.
 
 ### Cleanup Pattern in Components
 
