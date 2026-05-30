@@ -16,14 +16,16 @@
  * highlightActiveLinks("/blog");
  */
 export function highlightActiveLinks(pathname: string): void {
+  const normalised = pathname.replace(/\/$/, "") || "/";
   const links = document.querySelectorAll<HTMLAnchorElement>("a[href]");
 
   links.forEach((link) => {
     try {
       // Resolve href against the current origin to normalise relative URLs
       const url = new URL(link.getAttribute("href")!, window.location.origin);
+      const linkPathname = url.pathname.replace(/\/$/, "") || "/";
 
-      if (url.pathname === pathname) {
+      if (linkPathname === normalised) {
         link.setAttribute("data-active", "true");
       } else {
         link.removeAttribute("data-active");

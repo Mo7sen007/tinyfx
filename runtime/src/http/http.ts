@@ -83,6 +83,10 @@ export function createHttp(config: HttpConfig = {}) {
         // Combine signals if user provided one
         let combinedSignal: AbortSignal | undefined = timeoutController.signal;
         if (options.signal) {
+          if (options.signal.aborted) {
+            clearTimeout(timeoutId);
+            throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+          }
           const combinedController = new AbortController();
           const abortHandler = () => combinedController.abort();
           options.signal.addEventListener("abort", abortHandler, { once: true });
@@ -108,9 +112,10 @@ export function createHttp(config: HttpConfig = {}) {
           clearTimeout(timeoutId);
         }
 
-        // Apply response interceptors
+        // Apply response interceptors on clones so the original body is preserved
+        // for content-type parsing below (response bodies can only be read once).
         for (const interceptor of responseInterceptors) {
-          res = await interceptor(res);
+          await interceptor(res.clone());
         }
 
         if (!res.ok) {

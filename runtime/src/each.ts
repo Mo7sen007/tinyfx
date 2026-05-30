@@ -16,14 +16,18 @@ export function registerInstance(
  * Destroy a mounted component instance on a node and nested component nodes.
  */
 export function destroyNode(el: HTMLElement): void {
-  const inst = __componentInstances.get(el);
-  inst?.destroy?.();
-  __componentInstances.delete(el);
+  // Snapshot children before destroying the parent — parent's destroy() may remove
+  // them from the DOM, causing a subsequent querySelectorAll to find nothing.
+  // Reverse for bottom-up order (deepest descendants destroyed first).
+  const children = Array.from(
+    el.querySelectorAll<HTMLElement>("[data-component]"),
+  ).reverse();
 
-  el.querySelectorAll("[data-component]").forEach((child) => {
-    const childEl = child as HTMLElement;
-    const childInst = __componentInstances.get(childEl);
-    childInst?.destroy?.();
+  children.forEach((childEl) => {
+    __componentInstances.get(childEl)?.destroy?.();
     __componentInstances.delete(childEl);
   });
+
+  __componentInstances.get(el)?.destroy?.();
+  __componentInstances.delete(el);
 }

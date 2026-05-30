@@ -54,7 +54,10 @@ export function onDestroy(fn: LifecycleCallback): void {
  * flushMount();
  */
 export function flushMount(): void {
-  const run = () => mountCallbacks.forEach((fn) => fn());
+  const run = () => {
+    mountCallbacks.forEach((fn) => fn());
+    mountCallbacks.length = 0;
+  };
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", run, { once: true });
@@ -77,7 +80,10 @@ export function initLifecycle(): void {
 
   window.addEventListener(
     "pagehide",
-    () => destroyCallbacks.forEach((fn) => fn()),
+    () => {
+      destroyCallbacks.forEach((fn) => fn());
+      destroyCallbacks.length = 0;
+    },
     { once: true }
   );
 }

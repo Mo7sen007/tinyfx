@@ -88,8 +88,10 @@ export function signal<T>(v: T) {
  */
 export function effect(fn: () => void): EffectHandle {
   const subs = new Set<Set<Subscriber>>();
+  let disposed = false;
 
   const run = () => {
+    if (disposed) return;
     // Unsubscribe from the previous run's signals
     for (const s of subs) s.delete(run);
     subs.clear();
@@ -105,6 +107,7 @@ export function effect(fn: () => void): EffectHandle {
   run();
 
   const dispose = () => {
+    disposed = true;
     for (const s of subs) s.delete(run);
     subs.clear();
   };

@@ -10,7 +10,8 @@
  * buildUrl("/posts", "/api", { page: 2, published: true });
  */
 export function buildUrl(url: string, base:string, params?: Record<string, string | number | boolean>): string {
-    const fullUrl = base + url;
+    const separator = base.endsWith("/") || url.startsWith("/") ? "" : "/";
+    const fullUrl = base + separator + url;
     if (!params || Object.keys(params).length === 0) return fullUrl;
     
     const urlObj = new URL(fullUrl, typeof window !== 'undefined' ? window.location.href : 'http://localhost');
